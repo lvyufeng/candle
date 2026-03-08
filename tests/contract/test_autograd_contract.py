@@ -1,6 +1,6 @@
 import candle as torch
 import torch as pt
-from tests.candle.contract.helpers import assert_torch_error
+from .helpers import assert_torch_error
 
 
 def test_inplace_view_version_error_message():

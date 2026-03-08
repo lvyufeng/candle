@@ -2,7 +2,7 @@ import candle as torch
 import torch as pt
 
 from candle._dispatch.dispatcher import dispatch
-from tests.candle.contract.helpers import assert_torch_error
+from .helpers import assert_torch_error
 
 
 def test_dispatch_sum_rejects_float_dim_matches_torch():

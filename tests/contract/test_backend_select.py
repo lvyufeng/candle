@@ -1,7 +1,7 @@
 from candle._device import get_default_device, set_default_device
 from candle._dispatch.dispatcher import dispatch
 from candle._dtype import float32
-from tests.candle.contract.helpers import assert_torch_error
+from .helpers import assert_torch_error
 import candle as torch
 import torch as pt
 

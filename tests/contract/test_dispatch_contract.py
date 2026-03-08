@@ -1,6 +1,6 @@
 import uuid
 
-from tests.candle.contract.helpers import assert_torch_error
+from .helpers import assert_torch_error
 
 
 def test_pipeline_requires_meta_kernel_error():

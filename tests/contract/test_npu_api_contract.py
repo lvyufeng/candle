@@ -1,6 +1,6 @@
 import candle as torch
 import torch as pt
-from tests.candle.contract.helpers import assert_torch_error
+from .helpers import assert_torch_error
 
 
 def test_npu_set_device_invalid_string_matches_torch():

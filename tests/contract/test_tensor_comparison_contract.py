@@ -5,7 +5,7 @@ import torch as pt
 
 import candle as torch
 
-from tests.candle.contract.helpers import assert_torch_error
+from .helpers import assert_torch_error
 
 
 def test_tensor_eq_ne_return_tensor_matches_torch():
