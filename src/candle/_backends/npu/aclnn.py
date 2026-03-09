@@ -4075,6 +4075,25 @@ def _create_scalar(bindings, value, dtype):
 
 
 def _bind_symbol(libs, name, restype, argtypes):
+    preferred = None
+    if name in {
+        "aclnnAdd", "aclnnAddGetWorkspaceSize",
+        "aclnnSub", "aclnnSubGetWorkspaceSize",
+        "aclnnMul", "aclnnMulGetWorkspaceSize",
+        "aclnnDiv", "aclnnDivGetWorkspaceSize",
+        "aclnnAdds", "aclnnAddsGetWorkspaceSize",
+        "aclnnSubs", "aclnnSubsGetWorkspaceSize",
+    }:
+        for lib in libs:
+            path = getattr(lib, "_name", "") or ""
+            if path.endswith("libopapi.so") and hasattr(lib, name):
+                preferred = lib
+                break
+    if preferred is not None:
+        func = getattr(preferred, name)
+        func.restype = restype
+        func.argtypes = argtypes
+        return func
     for lib in libs:
         if hasattr(lib, name):
             func = getattr(lib, name)
