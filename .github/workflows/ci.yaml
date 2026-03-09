@@ -13,13 +13,6 @@ on:
       - 'src/candle/**'
       - 'tests/**'
       - '.github/workflows/**'
-  workflow_dispatch:
-    inputs:
-      run_distributed:
-        description: Run the experimental distributed HCCL validation job
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -87,117 +80,43 @@ jobs:
       run: |
         pytest tests/mps/ -v --tb=short
 
-  test-npu:
-    needs: pylint-check
-    runs-on: [self-hosted, ascend]
-    timeout-minutes: 30
-    steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.11"
-    - name: Resolve latest CANN environment
-      shell: bash
-      run: |
-        set -euxo pipefail
-        mapfile -t CANN_DIRS < <(find /usr/local/Ascend/ascend-toolkit -mindepth 1 -maxdepth 1 -type d | sort -V)
-        CANN_ROOT="$(readlink -f /usr/local/Ascend/ascend-toolkit/latest)"
-        if [ "${#CANN_DIRS[@]}" -gt 0 ]; then
-          NEWEST_CANN="$(printf '%s\n' "${CANN_DIRS[@]}" | tail -n1)"
-          if [ "${CANN_ROOT}" != "${NEWEST_CANN}" ]; then
-            echo "latest CANN mismatch: latest=${CANN_ROOT} newest=${NEWEST_CANN}" >&2
-            exit 1
-          fi
-        fi
-        echo "CANN_ROOT=${CANN_ROOT}" >> "$GITHUB_ENV"
-    - name: Install dependencies
-      shell: bash
-      run: |
-        set -euxo pipefail
-        python -m pip install --upgrade pip
-        pip install -r requirements/requirements-test.txt
-    - name: Install candle
-      shell: bash
-      run: |
-        set -euxo pipefail
-        pip install -e .
-    - name: Verify NPU availability
-      shell: bash
-      run: |
-        set -euxo pipefail
-        if [ -f "${CANN_ROOT}/set_env.sh" ]; then
-          # Source the runner's active CANN environment before importing candle.
-          source "${CANN_ROOT}/set_env.sh"
-        fi
-        export LD_LIBRARY_PATH="${CANN_ROOT}/lib64:${CANN_ROOT}/aarch64-linux/lib64:${LD_LIBRARY_PATH:-}"
-        export PYTHONPATH="${CANN_ROOT}/python/site-packages:${GITHUB_WORKSPACE}/src:${PYTHONPATH:-}"
-        python -c "import candle as torch; assert torch.npu.is_available(), 'NPU runner is not available'; print('NPU available:', torch.npu.is_available()); print('NPU device count:', torch.npu.device_count())"
-    - name: Run NPU 0.1 gate tests
-      shell: bash
-      run: |
-        set -euxo pipefail
-        if [ -f "${CANN_ROOT}/set_env.sh" ]; then
-          source "${CANN_ROOT}/set_env.sh"
-        fi
-        export LD_LIBRARY_PATH="${CANN_ROOT}/lib64:${CANN_ROOT}/aarch64-linux/lib64:${LD_LIBRARY_PATH:-}"
-        export PYTHONPATH="${CANN_ROOT}/python/site-packages:${GITHUB_WORKSPACE}/src:${PYTHONPATH:-}"
-        pytest \
-          tests/npu/test_npu_golden_training_loop.py \
-          tests/npu/test_npu_training_checkpoint_continuity.py \
-          tests/npu/test_mul_scalar_regression_npu.py \
-          tests/npu/test_no_cpu_fallback_npu.py \
-          -v --tb=short
-
-  test-distributed-experimental:
-    needs: test-npu
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_distributed == 'true' }}
-    continue-on-error: true
-    runs-on: [self-hosted, ascend, multicard]
-    timeout-minutes: 45
-    steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.11"
-    - name: Resolve latest CANN environment
-      shell: bash
-      run: |
-        set -euxo pipefail
-        mapfile -t CANN_DIRS < <(find /usr/local/Ascend/ascend-toolkit -mindepth 1 -maxdepth 1 -type d | sort -V)
-        CANN_ROOT="$(readlink -f /usr/local/Ascend/ascend-toolkit/latest)"
-        if [ "${#CANN_DIRS[@]}" -gt 0 ]; then
-          NEWEST_CANN="$(printf '%s\n' "${CANN_DIRS[@]}" | tail -n1)"
-          if [ "${CANN_ROOT}" != "${NEWEST_CANN}" ]; then
-            echo "latest CANN mismatch: latest=${CANN_ROOT} newest=${NEWEST_CANN}" >&2
-            exit 1
-          fi
-        fi
-        echo "CANN_ROOT=${CANN_ROOT}" >> "$GITHUB_ENV"
-    - name: Install dependencies
-      shell: bash
-      run: |
-        set -euxo pipefail
-        python -m pip install --upgrade pip
-        pip install -r requirements/requirements-test.txt
-    - name: Install candle
-      shell: bash
-      run: |
-        set -euxo pipefail
-        pip install -e .
-    - name: Run experimental HCCL validation
-      shell: bash
-      run: |
-        set -euxo pipefail
-        if [ -f "${CANN_ROOT}/set_env.sh" ]; then
-          source "${CANN_ROOT}/set_env.sh"
-        fi
-        export LD_LIBRARY_PATH="${CANN_ROOT}/lib64:${CANN_ROOT}/aarch64-linux/lib64:${LD_LIBRARY_PATH:-}"
-        export PYTHONPATH="${CANN_ROOT}/python/site-packages:${GITHUB_WORKSPACE}/src:${PYTHONPATH:-}"
-        pytest tests/distributed/test_hccl_mvp_longrun.py -v --tb=short
-
   # Future runners (configure when hardware is available):
+  #
+  # test-npu:
+  #   needs: pylint-check
+  #   runs-on: [self-hosted, ascend]
+  #   steps:
+  #   - uses: actions/checkout@v4
+  #   - name: Install dependencies
+  #     run: |
+  #       pip install -r requirements/requirements-test.txt
+  #   - name: Install candle
+  #     run: pip install -e .
+  #   - name: Run NPU 0.1 gate tests
+  #     run: |
+  #       PYTHONPATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:src \
+  #       pytest \
+  #         tests/npu/test_npu_golden_training_loop.py \
+  #         tests/npu/test_npu_training_checkpoint_continuity.py \
+  #         tests/npu/test_mul_scalar_regression_npu.py \
+  #         tests/npu/test_no_cpu_fallback_npu.py \
+  #         -v --tb=short
+  #
+  # test-distributed-experimental:
+  #   needs: test-npu
+  #   runs-on: [self-hosted, ascend, multicard]
+  #   continue-on-error: true
+  #   steps:
+  #   - uses: actions/checkout@v4
+  #   - name: Install dependencies
+  #     run: |
+  #       pip install -r requirements/requirements-test.txt
+  #   - name: Install candle
+  #     run: pip install -e .
+  #   - name: Run experimental HCCL validation
+  #     run: |
+  #       PYTHONPATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:src \
+  #       pytest tests/distributed/test_hccl_mvp_longrun.py -v --tb=short
   #
   # test-cuda:
   #   needs: pylint-check
