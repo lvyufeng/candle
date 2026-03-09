@@ -32,3 +32,12 @@ def test_npu_memory_snapshot_has_keys():
     assert isinstance(snap, dict)
     assert "segments" in snap
     assert "device" in snap
+
+
+def test_npu_can_device_access_peer_exists_like_torch_cuda_surface():
+    assert hasattr(torch.npu, "can_device_access_peer")
+    assert hasattr(pt.cuda, "can_device_access_peer")
+
+
+def test_npu_stream_priority_range_exists_like_torch_cuda_surface():
+    assert hasattr(torch.npu, "stream_priority_range")
