@@ -21,6 +21,7 @@ permissions:
 env:
   CONDA_EXE: /home/lvyufeng/miniconda3/bin/conda
   CONDA_ENV_PREFIX: /tmp/candle-npu-ci
+  ASCEND_ENV_SCRIPT: /usr/local/Ascend/ascend-toolkit/set_env.sh
 
 jobs:
   test-npu:
@@ -35,20 +36,25 @@ jobs:
     - uses: actions/checkout@v4
     - name: Prepare conda environment
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" create -y -p "$JOB_CONDA_ENV" python=3.11 pip
     - name: Show Python environment
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python --version
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip --version
     - name: Install dependencies
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install --upgrade pip
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install -r requirements/requirements-test.txt
     - name: Install candle
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install -e .
     - name: Show runner NPU mapping
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python - <<'PY'
         import os
         import candle as torch
@@ -59,6 +65,7 @@ jobs:
         PY
     - name: Run NPU tests
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" pytest tests/npu/ -v --tb=short --ignore=tests/npu/test_pipeline_npu_bench_smoke.py
 
   test-distributed-2card:
@@ -73,20 +80,25 @@ jobs:
     - uses: actions/checkout@v4
     - name: Prepare conda environment
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" create -y -p "$JOB_CONDA_ENV" python=3.11 pip
     - name: Show Python environment
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python --version
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip --version
     - name: Install dependencies
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install --upgrade pip
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install -r requirements/requirements-test.txt
     - name: Install candle
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install -e .
     - name: Show runner NPU mapping
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python - <<'PY'
         import os
         import candle as torch
@@ -97,9 +109,11 @@ jobs:
         PY
     - name: Run distributed baseline suite
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" pytest tests/distributed/ -v --tb=short -k "not all_to_all_single_async_unequal_multicard and not all_to_all_single_invalid_split_pairing_multicard and not all_to_all_single_split_numel_validation_multicard"
     - name: Run 2-card HCCL all_to_all coverage
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" pytest \
           'tests/distributed/test_hccl_all_to_all_single_async_unequal_multicard.py::test_hccl_all_to_all_single_async_unequal_multicard[2-29714]' \
           'tests/distributed/test_hccl_all_to_all_single_invalid_splits_multicard.py::test_hccl_all_to_all_single_invalid_split_pairing_multicard[2-29715]' \
@@ -119,20 +133,25 @@ jobs:
     - uses: actions/checkout@v4
     - name: Prepare conda environment
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" create -y -p "$JOB_CONDA_ENV" python=3.11 pip
     - name: Show Python environment
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python --version
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip --version
     - name: Install dependencies
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install --upgrade pip
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install -r requirements/requirements-test.txt
     - name: Install candle
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install -e .
     - name: Show runner NPU mapping
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python - <<'PY'
         import os
         import candle as torch
@@ -143,6 +162,7 @@ jobs:
         PY
     - name: Run 4-card HCCL all_to_all coverage
       run: |
+        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" run -p "$JOB_CONDA_ENV" pytest \
           'tests/distributed/test_hccl_all_to_all_single_async_unequal_multicard.py::test_hccl_all_to_all_single_async_unequal_multicard[4-29724]' \
           'tests/distributed/test_hccl_all_to_all_single_invalid_splits_multicard.py::test_hccl_all_to_all_single_invalid_split_pairing_multicard[4-29725]' \
