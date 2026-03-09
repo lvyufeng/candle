@@ -44,6 +44,7 @@ from ._functional import pow, log2, log10, exp2, rsqrt
 from ._functional import sign, signbit, isnan, isinf, isfinite
 from ._functional import sinh, cosh, asinh, acosh, atanh, erf, erfc, softplus
 from ._functional import clamp, clamp_min, clamp_max, relu6, hardtanh
+from ._functional import add_, mul_, relu_, zero_, clamp_, copy_
 from ._functional import min, max, amin, amax, fmin, fmax, where
 from ._functional import atan, atan2, asin, acos, lerp, addcmul, addcdiv
 from ._functional import reshape, transpose
@@ -297,6 +298,12 @@ __all__ = [
     "clamp_max",
     "relu6",
     "hardtanh",
+    "add_",
+    "mul_",
+    "relu_",
+    "zero_",
+    "clamp_",
+    "copy_",
     "min",
     "max",
     "amin",
