@@ -58,9 +58,12 @@ class GradScaler:
         if not self._enabled:
             return outputs
         self._lazy_init_scale_growth_tracker()
-        # Keep scale as Python scalar so backend scalar-mul paths are used
-        # uniformly across devices (avoids backend-specific 0-d tensor issues).
-        return outputs * float(self._scale)
+        scale = float(self._scale)
+        if scale == 0.0:
+            raise ZeroDivisionError("GradScaler scale cannot be zero")
+        # NPU scalar mul/add/sub kernels may be unavailable on some stacks.
+        # Use division by reciprocal for equivalent scaling with broader support.
+        return outputs / (1.0 / scale)
 
     def _params_for_optimizer(self, optimizer):
         if hasattr(optimizer, "param_groups"):
