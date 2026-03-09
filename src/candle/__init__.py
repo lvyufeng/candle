@@ -143,10 +143,22 @@ def functionalize():
 
 
 def compile(model=None, *args, **kwargs):
+    backend = kwargs.get("backend", None)
+    mode = kwargs.get("mode", None)
+    if backend is not None or mode is not None:
+        raise NotImplementedError(
+            "compile backend selection is outside 0.1 NPU-first scope"
+        )
+    if args:
+        raise NotImplementedError(
+            "compile advanced options are outside 0.1 NPU-first scope"
+        )
     if callable(model):
         return model
+
     def decorator(fn):
         return fn
+
     return decorator
 
 
