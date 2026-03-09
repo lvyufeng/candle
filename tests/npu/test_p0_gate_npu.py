@@ -35,8 +35,7 @@ def test_p0_gate_amp_npu_autocast_smoke():
 
 
 @pytest.mark.skipif(not _npu_available(), reason="NPU unavailable")
-@pytest.mark.xfail(reason="Known issue: NPU mul kernel (aclnnMul 561000) impacts backward paths", strict=False)
-def test_p0_gate_amp_npu_scaler_smoke_known_issue():
+def test_p0_gate_amp_npu_scaler_smoke():
     x = torch.randn((8, 8), device="npu", dtype=torch.float32)
     x.requires_grad = True
     scaler = torch.amp.GradScaler("npu")

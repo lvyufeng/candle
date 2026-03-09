@@ -298,22 +298,40 @@ def _binary_op(a, b, fn, name):
     out_ptr = npu_runtime._alloc_device(out_size, runtime=runtime)
     a_storage = _unwrap_storage(a)
     b_storage = _unwrap_storage(b)
-    fn(
-        a_storage.data_ptr(),
-        b_storage.data_ptr(),
-        out_ptr,
-        a.shape,
-        a.stride,
-        b.shape,
-        b.stride,
-        out_shape,
-        out_stride,
-        a.dtype,
-        runtime,
-        stream=stream.stream,
-    )
-    out_storage = npu_typed_storage_from_ptr(out_ptr, _numel(out_shape), a.dtype, device=a.device)
-    return _wrap_tensor(out_storage, out_shape, out_stride)
+    try:
+        fn(
+            a_storage.data_ptr(),
+            b_storage.data_ptr(),
+            out_ptr,
+            a.shape,
+            a.stride,
+            b.shape,
+            b.stride,
+            out_shape,
+            out_stride,
+            a.dtype,
+            runtime,
+            stream=stream.stream,
+        )
+        out_storage = npu_typed_storage_from_ptr(out_ptr, _numel(out_shape), a.dtype, device=a.device)
+        return _wrap_tensor(out_storage, out_shape, out_stride)
+    except RuntimeError as exc:
+        if name not in ("add", "sub", "mul"):
+            raise
+        msg = str(exc)
+        if "561000" not in msg and "561103" not in msg:
+            raise
+        # Pure-NPU fallback for known unstable binary kernels on some stacks.
+        # add/sub/mul are reconstructed via addcmul, which is stable on this stack.
+        if name == "mul":
+            zeros = _scalar_to_npu_tensor(0, a)
+            return addcmul(zeros, a, b, value=1.0)
+        if name == "add":
+            ones = _scalar_to_npu_tensor(1, a)
+            return addcmul(a, ones, b, value=1.0)
+        # name == "sub"
+        ones = _scalar_to_npu_tensor(1, a)
+        return addcmul(a, ones, b, value=-1.0)
 
 
 def add(a, b):
@@ -11410,6 +11428,3 @@ def upsample_nearest1d_op(a, output_size, scales=None):
     a_4d = view_backend.reshape(a, (N, C, 1, W))
     out_4d = dispatch("upsample_nearest2d", "npu", a_4d, [1, oW], None, scales)
     return view_backend.reshape(out_4d, (N, C, oW))
-
-
-

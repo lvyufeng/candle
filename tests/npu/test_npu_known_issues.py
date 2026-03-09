@@ -12,16 +12,14 @@ def _npu_available() -> bool:
 
 
 @pytest.mark.skipif(not _npu_available(), reason="NPU unavailable")
-@pytest.mark.xfail(reason="Known issue: aclnnMul returns 561000 on current stack", strict=False)
-def test_npu_mul_tensor_tensor_known_issue():
+def test_npu_mul_tensor_tensor_fallback_path():
     a = torch.randn((4, 4), device="npu", dtype=torch.float32)
     b = torch.randn((4, 4), device="npu", dtype=torch.float32)
     _ = a * b
 
 
 @pytest.mark.skipif(not _npu_available(), reason="NPU unavailable")
-@pytest.mark.xfail(reason="Known issue: sum backward uses NPU mul path (aclnnMul 561000)", strict=False)
-def test_npu_sum_backward_mul_known_issue():
+def test_npu_sum_backward_mul_fallback_path():
     x = torch.randn((4, 4), device="npu", dtype=torch.float32)
     x.requires_grad = True
     y = x.sum()
