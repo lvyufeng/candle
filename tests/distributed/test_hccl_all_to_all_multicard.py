@@ -38,18 +38,29 @@ for j in range(world_size):
     assert actual == expected, f"rank {rank} from rank {j}: expected {expected}, got {actual}"
 print(f"[rank {rank}] all_to_all OK")
 
-# 3. all_to_all_single with equal split
-# rank i sends [i*world_size, i*world_size+1, ..., i*world_size+world_size-1]
-# rank i should receive [0*world_size+i, 1*world_size+i, ..., (world_size-1)*world_size+i]
-inp_single = torch.tensor([float(rank * world_size + j) for j in range(world_size)], device=device)
-out_single = torch.zeros(world_size, device=device)
-dist.all_to_all_single(out_single, inp_single)
+# 3. all_to_all_single with equal split + repeat stability
+# rank i sends [i*1000+j] and rank i receives [j*1000+i]
+for it in range(3):
+    inp_single = torch.tensor(
+        [float(1000 * it + rank * world_size + j) for j in range(world_size)],
+        device=device,
+    )
+    out_single = torch.zeros(world_size, device=device)
+    split = [1] * world_size
+    dist.all_to_all_single(
+        out_single,
+        inp_single,
+        output_split_sizes=split,
+        input_split_sizes=split,
+    )
 
-out_single_cpu = out_single.to("cpu")
-expected_single = [float(j * world_size + rank) for j in range(world_size)]
-actual_single = list(out_single_cpu._numpy_view())
-assert actual_single == expected_single, f"rank {rank} all_to_all_single: expected {expected_single}, got {actual_single}"
-print(f"[rank {rank}] all_to_all_single OK")
+    out_single_cpu = out_single.to("cpu")
+    expected_single = [float(1000 * it + j * world_size + rank) for j in range(world_size)]
+    actual_single = list(out_single_cpu._numpy_view())
+    assert actual_single == expected_single, (
+        f"iter {it} rank {rank} all_to_all_single: expected {expected_single}, got {actual_single}"
+    )
+print(f"[rank {rank}] all_to_all_single repeat OK")
 
 dist.destroy_process_group()
 print(f"[rank {rank}] ALL TESTS PASSED")
