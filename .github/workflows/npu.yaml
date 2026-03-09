@@ -22,6 +22,8 @@ env:
   CONDA_EXE: /home/lvyufeng/miniconda3/bin/conda
   CONDA_ENV_PREFIX: /tmp/candle-npu-ci
   ASCEND_ENV_SCRIPT: /usr/local/Ascend/ascend-toolkit/set_env.sh
+  PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+  PYTHONNOUSERSITE: '1'
 
 jobs:
   test-npu:
@@ -36,45 +38,85 @@ jobs:
     - uses: actions/checkout@v4
     - name: Prepare conda environment
       run: |
-        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" create -y -p "$JOB_CONDA_ENV" python=3.11 pip
     - name: Show Python environment
       run: |
-        source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python --version
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip --version
+        "$JOB_CONDA_ENV/bin/python" --version
+        "$JOB_CONDA_ENV/bin/python" -m pip --version
     - name: Install dependencies
       run: |
-        source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install --upgrade pip
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install -r requirements/requirements-test.txt
+        "$JOB_CONDA_ENV/bin/python" -m pip install --upgrade pip
+        "$JOB_CONDA_ENV/bin/python" -m pip install -r requirements/requirements-test.txt
     - name: Install candle
       run: |
-        source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install -e .
+        "$JOB_CONDA_ENV/bin/python" -m pip install -e .
     - name: Show runner NPU mapping
       run: |
         source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python - <<'PY'
-        import os
-        import candle as torch
-        print('ASCEND_RT_VISIBLE_DEVICES=', os.environ.get('ASCEND_RT_VISIBLE_DEVICES'))
-        print('ASCEND_VISIBLE_DEVICES=', os.environ.get('ASCEND_VISIBLE_DEVICES'))
-        print('NPU available:', torch.npu.is_available())
-        print('NPU device count:', torch.npu.device_count())
-        PY
+        # Run test-facing commands in a minimal env so runner-local Python state does not leak into pytest.
+        clean_env() {
+          env -i \
+            HOME="$HOME" \
+            PATH="$JOB_CONDA_ENV/bin:${ASCEND_TOOLKIT_HOME}/bin:${ASCEND_TOOLKIT_HOME}/compiler/ccec_compiler/bin:${ASCEND_TOOLKIT_HOME}/tools/ccec_compiler/bin:/usr/bin:/bin" \
+            LANG="${LANG:-C.UTF-8}" \
+            LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+            PYTHONPATH="${PYTHONPATH:-}" \
+            ASCEND_TOOLKIT_HOME="$ASCEND_TOOLKIT_HOME" \
+            ASCEND_AICPU_PATH="$ASCEND_AICPU_PATH" \
+            ASCEND_OPP_PATH="$ASCEND_OPP_PATH" \
+            TOOLCHAIN_HOME="$TOOLCHAIN_HOME" \
+            ASCEND_HOME_PATH="$ASCEND_HOME_PATH" \
+            ASCEND_RT_VISIBLE_DEVICES="$ASCEND_RT_VISIBLE_DEVICES" \
+            ASCEND_VISIBLE_DEVICES="$ASCEND_VISIBLE_DEVICES" \
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD="$PYTEST_DISABLE_PLUGIN_AUTOLOAD" \
+            PYTHONNOUSERSITE="$PYTHONNOUSERSITE" \
+            "$@"
+        }
+        clean_env python -c "import os, sys, candle as torch; print('Python executable:', sys.executable); print('ASCEND_RT_VISIBLE_DEVICES=', os.environ.get('ASCEND_RT_VISIBLE_DEVICES')); print('ASCEND_VISIBLE_DEVICES=', os.environ.get('ASCEND_VISIBLE_DEVICES')); print('NPU available:', torch.npu.is_available()); print('NPU device count:', torch.npu.device_count())"
     - name: Assert NPU availability
       run: |
         source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python - <<'PY'
-        import candle as torch
-        assert torch.npu.is_available(), 'expected NPU to be available in NPU Suite (6-7)'
-        assert torch.npu.device_count() >= 2, f'expected >=2 visible NPUs, found {torch.npu.device_count()}'
-        PY
+        clean_env() {
+          env -i \
+            HOME="$HOME" \
+            PATH="$JOB_CONDA_ENV/bin:${ASCEND_TOOLKIT_HOME}/bin:${ASCEND_TOOLKIT_HOME}/compiler/ccec_compiler/bin:${ASCEND_TOOLKIT_HOME}/tools/ccec_compiler/bin:/usr/bin:/bin" \
+            LANG="${LANG:-C.UTF-8}" \
+            LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+            PYTHONPATH="${PYTHONPATH:-}" \
+            ASCEND_TOOLKIT_HOME="$ASCEND_TOOLKIT_HOME" \
+            ASCEND_AICPU_PATH="$ASCEND_AICPU_PATH" \
+            ASCEND_OPP_PATH="$ASCEND_OPP_PATH" \
+            TOOLCHAIN_HOME="$TOOLCHAIN_HOME" \
+            ASCEND_HOME_PATH="$ASCEND_HOME_PATH" \
+            ASCEND_RT_VISIBLE_DEVICES="$ASCEND_RT_VISIBLE_DEVICES" \
+            ASCEND_VISIBLE_DEVICES="$ASCEND_VISIBLE_DEVICES" \
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD="$PYTEST_DISABLE_PLUGIN_AUTOLOAD" \
+            PYTHONNOUSERSITE="$PYTHONNOUSERSITE" \
+            "$@"
+        }
+        clean_env python -c "import candle as torch; count = torch.npu.device_count(); assert torch.npu.is_available(), 'expected NPU to be available in NPU Suite (6-7)'; assert count >= 2, f'expected >=2 visible NPUs, found {count}'"
     - name: Run NPU tests
       run: |
         source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" pytest tests/npu/ -v --tb=short --ignore=tests/npu/test_pipeline_npu_bench_smoke.py
+        clean_env() {
+          env -i \
+            HOME="$HOME" \
+            PATH="$JOB_CONDA_ENV/bin:${ASCEND_TOOLKIT_HOME}/bin:${ASCEND_TOOLKIT_HOME}/compiler/ccec_compiler/bin:${ASCEND_TOOLKIT_HOME}/tools/ccec_compiler/bin:/usr/bin:/bin" \
+            LANG="${LANG:-C.UTF-8}" \
+            LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+            PYTHONPATH="${PYTHONPATH:-}" \
+            ASCEND_TOOLKIT_HOME="$ASCEND_TOOLKIT_HOME" \
+            ASCEND_AICPU_PATH="$ASCEND_AICPU_PATH" \
+            ASCEND_OPP_PATH="$ASCEND_OPP_PATH" \
+            TOOLCHAIN_HOME="$TOOLCHAIN_HOME" \
+            ASCEND_HOME_PATH="$ASCEND_HOME_PATH" \
+            ASCEND_RT_VISIBLE_DEVICES="$ASCEND_RT_VISIBLE_DEVICES" \
+            ASCEND_VISIBLE_DEVICES="$ASCEND_VISIBLE_DEVICES" \
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD="$PYTEST_DISABLE_PLUGIN_AUTOLOAD" \
+            PYTHONNOUSERSITE="$PYTHONNOUSERSITE" \
+            "$@"
+        }
+        clean_env pytest tests/npu/ -v --tb=short --ignore=tests/npu/test_pipeline_npu_bench_smoke.py
 
   test-distributed-2card:
     name: Distributed Suite (4-5)
@@ -88,56 +130,113 @@ jobs:
     - uses: actions/checkout@v4
     - name: Prepare conda environment
       run: |
-        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" create -y -p "$JOB_CONDA_ENV" python=3.11 pip
     - name: Show Python environment
       run: |
-        source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python --version
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip --version
+        "$JOB_CONDA_ENV/bin/python" --version
+        "$JOB_CONDA_ENV/bin/python" -m pip --version
     - name: Install dependencies
       run: |
-        source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install --upgrade pip
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install -r requirements/requirements-test.txt
+        "$JOB_CONDA_ENV/bin/python" -m pip install --upgrade pip
+        "$JOB_CONDA_ENV/bin/python" -m pip install -r requirements/requirements-test.txt
     - name: Install candle
       run: |
-        source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install -e .
+        "$JOB_CONDA_ENV/bin/python" -m pip install -e .
     - name: Show runner NPU mapping
       run: |
         source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python - <<'PY'
-        import os
-        import candle as torch
-        print('ASCEND_RT_VISIBLE_DEVICES=', os.environ.get('ASCEND_RT_VISIBLE_DEVICES'))
-        print('ASCEND_VISIBLE_DEVICES=', os.environ.get('ASCEND_VISIBLE_DEVICES'))
-        print('NPU available:', torch.npu.is_available())
-        print('NPU device count:', torch.npu.device_count())
-        PY
+        clean_env() {
+          env -i \
+            HOME="$HOME" \
+            PATH="$JOB_CONDA_ENV/bin:${ASCEND_TOOLKIT_HOME}/bin:${ASCEND_TOOLKIT_HOME}/compiler/ccec_compiler/bin:${ASCEND_TOOLKIT_HOME}/tools/ccec_compiler/bin:/usr/bin:/bin" \
+            LANG="${LANG:-C.UTF-8}" \
+            LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+            PYTHONPATH="${PYTHONPATH:-}" \
+            ASCEND_TOOLKIT_HOME="$ASCEND_TOOLKIT_HOME" \
+            ASCEND_AICPU_PATH="$ASCEND_AICPU_PATH" \
+            ASCEND_OPP_PATH="$ASCEND_OPP_PATH" \
+            TOOLCHAIN_HOME="$TOOLCHAIN_HOME" \
+            ASCEND_HOME_PATH="$ASCEND_HOME_PATH" \
+            ASCEND_RT_VISIBLE_DEVICES="$ASCEND_RT_VISIBLE_DEVICES" \
+            ASCEND_VISIBLE_DEVICES="$ASCEND_VISIBLE_DEVICES" \
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD="$PYTEST_DISABLE_PLUGIN_AUTOLOAD" \
+            PYTHONNOUSERSITE="$PYTHONNOUSERSITE" \
+            "$@"
+        }
+        clean_env python -c "import os, sys, candle as torch; print('Python executable:', sys.executable); print('ASCEND_RT_VISIBLE_DEVICES=', os.environ.get('ASCEND_RT_VISIBLE_DEVICES')); print('ASCEND_VISIBLE_DEVICES=', os.environ.get('ASCEND_VISIBLE_DEVICES')); print('NPU available:', torch.npu.is_available()); print('NPU device count:', torch.npu.device_count())"
     - name: Assert NPU availability
       run: |
         source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python - <<'PY'
-        import candle as torch
-        assert torch.npu.is_available(), 'expected NPU to be available in Distributed Suite (4-5)'
-        assert torch.npu.device_count() >= 2, f'expected >=2 visible NPUs, found {torch.npu.device_count()}'
-        PY
+        clean_env() {
+          env -i \
+            HOME="$HOME" \
+            PATH="$JOB_CONDA_ENV/bin:${ASCEND_TOOLKIT_HOME}/bin:${ASCEND_TOOLKIT_HOME}/compiler/ccec_compiler/bin:${ASCEND_TOOLKIT_HOME}/tools/ccec_compiler/bin:/usr/bin:/bin" \
+            LANG="${LANG:-C.UTF-8}" \
+            LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+            PYTHONPATH="${PYTHONPATH:-}" \
+            ASCEND_TOOLKIT_HOME="$ASCEND_TOOLKIT_HOME" \
+            ASCEND_AICPU_PATH="$ASCEND_AICPU_PATH" \
+            ASCEND_OPP_PATH="$ASCEND_OPP_PATH" \
+            TOOLCHAIN_HOME="$TOOLCHAIN_HOME" \
+            ASCEND_HOME_PATH="$ASCEND_HOME_PATH" \
+            ASCEND_RT_VISIBLE_DEVICES="$ASCEND_RT_VISIBLE_DEVICES" \
+            ASCEND_VISIBLE_DEVICES="$ASCEND_VISIBLE_DEVICES" \
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD="$PYTEST_DISABLE_PLUGIN_AUTOLOAD" \
+            PYTHONNOUSERSITE="$PYTHONNOUSERSITE" \
+            "$@"
+        }
+        clean_env python -c "import candle as torch; count = torch.npu.device_count(); assert torch.npu.is_available(), 'expected NPU to be available in Distributed Suite (4-5)'; assert count >= 2, f'expected >=2 visible NPUs, found {count}'"
     - name: Run distributed baseline suite
       run: |
         source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" pytest tests/distributed/ -v --tb=short -k "not all_to_all_single_async_unequal_multicard and not all_to_all_single_invalid_split_pairing_multicard and not all_to_all_single_split_numel_validation_multicard"
+        clean_env() {
+          env -i \
+            HOME="$HOME" \
+            PATH="$JOB_CONDA_ENV/bin:${ASCEND_TOOLKIT_HOME}/bin:${ASCEND_TOOLKIT_HOME}/compiler/ccec_compiler/bin:${ASCEND_TOOLKIT_HOME}/tools/ccec_compiler/bin:/usr/bin:/bin" \
+            LANG="${LANG:-C.UTF-8}" \
+            LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+            PYTHONPATH="${PYTHONPATH:-}" \
+            ASCEND_TOOLKIT_HOME="$ASCEND_TOOLKIT_HOME" \
+            ASCEND_AICPU_PATH="$ASCEND_AICPU_PATH" \
+            ASCEND_OPP_PATH="$ASCEND_OPP_PATH" \
+            TOOLCHAIN_HOME="$TOOLCHAIN_HOME" \
+            ASCEND_HOME_PATH="$ASCEND_HOME_PATH" \
+            ASCEND_RT_VISIBLE_DEVICES="$ASCEND_RT_VISIBLE_DEVICES" \
+            ASCEND_VISIBLE_DEVICES="$ASCEND_VISIBLE_DEVICES" \
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD="$PYTEST_DISABLE_PLUGIN_AUTOLOAD" \
+            PYTHONNOUSERSITE="$PYTHONNOUSERSITE" \
+            "$@"
+        }
+        clean_env pytest tests/distributed/ -v --tb=short -k "not all_to_all_single_async_unequal_multicard and not all_to_all_single_invalid_split_pairing_multicard and not all_to_all_single_split_numel_validation_multicard"
     - name: Run 2-card HCCL all_to_all coverage
       run: |
         set -o pipefail
         source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" pytest \
+        clean_env() {
+          env -i \
+            HOME="$HOME" \
+            PATH="$JOB_CONDA_ENV/bin:${ASCEND_TOOLKIT_HOME}/bin:${ASCEND_TOOLKIT_HOME}/compiler/ccec_compiler/bin:${ASCEND_TOOLKIT_HOME}/tools/ccec_compiler/bin:/usr/bin:/bin" \
+            LANG="${LANG:-C.UTF-8}" \
+            LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+            PYTHONPATH="${PYTHONPATH:-}" \
+            ASCEND_TOOLKIT_HOME="$ASCEND_TOOLKIT_HOME" \
+            ASCEND_AICPU_PATH="$ASCEND_AICPU_PATH" \
+            ASCEND_OPP_PATH="$ASCEND_OPP_PATH" \
+            TOOLCHAIN_HOME="$TOOLCHAIN_HOME" \
+            ASCEND_HOME_PATH="$ASCEND_HOME_PATH" \
+            ASCEND_RT_VISIBLE_DEVICES="$ASCEND_RT_VISIBLE_DEVICES" \
+            ASCEND_VISIBLE_DEVICES="$ASCEND_VISIBLE_DEVICES" \
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD="$PYTEST_DISABLE_PLUGIN_AUTOLOAD" \
+            PYTHONNOUSERSITE="$PYTHONNOUSERSITE" \
+            "$@"
+        }
+        clean_env pytest \
           'tests/distributed/test_hccl_all_to_all_single_async_unequal_multicard.py::test_hccl_all_to_all_single_async_unequal_multicard[2-29714]' \
           'tests/distributed/test_hccl_all_to_all_single_invalid_splits_multicard.py::test_hccl_all_to_all_single_invalid_split_pairing_multicard[2-29715]' \
           'tests/distributed/test_hccl_all_to_all_single_split_numel_validation_multicard.py::test_hccl_all_to_all_single_split_numel_validation_multicard[input_sum_mismatch-2-29716]' \
           'tests/distributed/test_hccl_all_to_all_single_split_numel_validation_multicard.py::test_hccl_all_to_all_single_split_numel_validation_multicard[output_sum_mismatch-2-29716]' \
           -v -rs --tb=short | tee /tmp/candle-hccl-2card.log
-        if rg -n "SKIPPED|skipped" /tmp/candle-hccl-2card.log; then
+        if grep -nE "SKIPPED|skipped" /tmp/candle-hccl-2card.log; then
           echo "2-card HCCL coverage unexpectedly skipped tests" >&2
           exit 1
         fi
@@ -154,52 +253,91 @@ jobs:
     - uses: actions/checkout@v4
     - name: Prepare conda environment
       run: |
-        source "$ASCEND_ENV_SCRIPT"
         "$CONDA_EXE" create -y -p "$JOB_CONDA_ENV" python=3.11 pip
     - name: Show Python environment
       run: |
-        source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python --version
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip --version
+        "$JOB_CONDA_ENV/bin/python" --version
+        "$JOB_CONDA_ENV/bin/python" -m pip --version
     - name: Install dependencies
       run: |
-        source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install --upgrade pip
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install -r requirements/requirements-test.txt
+        "$JOB_CONDA_ENV/bin/python" -m pip install --upgrade pip
+        "$JOB_CONDA_ENV/bin/python" -m pip install -r requirements/requirements-test.txt
     - name: Install candle
       run: |
-        source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python -m pip install -e .
+        "$JOB_CONDA_ENV/bin/python" -m pip install -e .
     - name: Show runner NPU mapping
       run: |
         source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python - <<'PY'
-        import os
-        import candle as torch
-        print('ASCEND_RT_VISIBLE_DEVICES=', os.environ.get('ASCEND_RT_VISIBLE_DEVICES'))
-        print('ASCEND_VISIBLE_DEVICES=', os.environ.get('ASCEND_VISIBLE_DEVICES'))
-        print('NPU available:', torch.npu.is_available())
-        print('NPU device count:', torch.npu.device_count())
-        PY
+        clean_env() {
+          env -i \
+            HOME="$HOME" \
+            PATH="$JOB_CONDA_ENV/bin:${ASCEND_TOOLKIT_HOME}/bin:${ASCEND_TOOLKIT_HOME}/compiler/ccec_compiler/bin:${ASCEND_TOOLKIT_HOME}/tools/ccec_compiler/bin:/usr/bin:/bin" \
+            LANG="${LANG:-C.UTF-8}" \
+            LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+            PYTHONPATH="${PYTHONPATH:-}" \
+            ASCEND_TOOLKIT_HOME="$ASCEND_TOOLKIT_HOME" \
+            ASCEND_AICPU_PATH="$ASCEND_AICPU_PATH" \
+            ASCEND_OPP_PATH="$ASCEND_OPP_PATH" \
+            TOOLCHAIN_HOME="$TOOLCHAIN_HOME" \
+            ASCEND_HOME_PATH="$ASCEND_HOME_PATH" \
+            ASCEND_RT_VISIBLE_DEVICES="$ASCEND_RT_VISIBLE_DEVICES" \
+            ASCEND_VISIBLE_DEVICES="$ASCEND_VISIBLE_DEVICES" \
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD="$PYTEST_DISABLE_PLUGIN_AUTOLOAD" \
+            PYTHONNOUSERSITE="$PYTHONNOUSERSITE" \
+            "$@"
+        }
+        clean_env python -c "import os, sys, candle as torch; print('Python executable:', sys.executable); print('ASCEND_RT_VISIBLE_DEVICES=', os.environ.get('ASCEND_RT_VISIBLE_DEVICES')); print('ASCEND_VISIBLE_DEVICES=', os.environ.get('ASCEND_VISIBLE_DEVICES')); print('NPU available:', torch.npu.is_available()); print('NPU device count:', torch.npu.device_count())"
     - name: Assert NPU availability
       run: |
         source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" python - <<'PY'
-        import candle as torch
-        assert torch.npu.is_available(), 'expected NPU to be available in HCCL 4-Card Suite (0-3)'
-        assert torch.npu.device_count() >= 4, f'expected >=4 visible NPUs, found {torch.npu.device_count()}'
-        PY
+        clean_env() {
+          env -i \
+            HOME="$HOME" \
+            PATH="$JOB_CONDA_ENV/bin:${ASCEND_TOOLKIT_HOME}/bin:${ASCEND_TOOLKIT_HOME}/compiler/ccec_compiler/bin:${ASCEND_TOOLKIT_HOME}/tools/ccec_compiler/bin:/usr/bin:/bin" \
+            LANG="${LANG:-C.UTF-8}" \
+            LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+            PYTHONPATH="${PYTHONPATH:-}" \
+            ASCEND_TOOLKIT_HOME="$ASCEND_TOOLKIT_HOME" \
+            ASCEND_AICPU_PATH="$ASCEND_AICPU_PATH" \
+            ASCEND_OPP_PATH="$ASCEND_OPP_PATH" \
+            TOOLCHAIN_HOME="$TOOLCHAIN_HOME" \
+            ASCEND_HOME_PATH="$ASCEND_HOME_PATH" \
+            ASCEND_RT_VISIBLE_DEVICES="$ASCEND_RT_VISIBLE_DEVICES" \
+            ASCEND_VISIBLE_DEVICES="$ASCEND_VISIBLE_DEVICES" \
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD="$PYTEST_DISABLE_PLUGIN_AUTOLOAD" \
+            PYTHONNOUSERSITE="$PYTHONNOUSERSITE" \
+            "$@"
+        }
+        clean_env python -c "import candle as torch; count = torch.npu.device_count(); assert torch.npu.is_available(), 'expected NPU to be available in HCCL 4-Card Suite (0-3)'; assert count >= 4, f'expected >=4 visible NPUs, found {count}'"
     - name: Run 4-card HCCL all_to_all coverage
       run: |
         set -o pipefail
         source "$ASCEND_ENV_SCRIPT"
-        "$CONDA_EXE" run -p "$JOB_CONDA_ENV" pytest \
+        clean_env() {
+          env -i \
+            HOME="$HOME" \
+            PATH="$JOB_CONDA_ENV/bin:${ASCEND_TOOLKIT_HOME}/bin:${ASCEND_TOOLKIT_HOME}/compiler/ccec_compiler/bin:${ASCEND_TOOLKIT_HOME}/tools/ccec_compiler/bin:/usr/bin:/bin" \
+            LANG="${LANG:-C.UTF-8}" \
+            LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+            PYTHONPATH="${PYTHONPATH:-}" \
+            ASCEND_TOOLKIT_HOME="$ASCEND_TOOLKIT_HOME" \
+            ASCEND_AICPU_PATH="$ASCEND_AICPU_PATH" \
+            ASCEND_OPP_PATH="$ASCEND_OPP_PATH" \
+            TOOLCHAIN_HOME="$TOOLCHAIN_HOME" \
+            ASCEND_HOME_PATH="$ASCEND_HOME_PATH" \
+            ASCEND_RT_VISIBLE_DEVICES="$ASCEND_RT_VISIBLE_DEVICES" \
+            ASCEND_VISIBLE_DEVICES="$ASCEND_VISIBLE_DEVICES" \
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD="$PYTEST_DISABLE_PLUGIN_AUTOLOAD" \
+            PYTHONNOUSERSITE="$PYTHONNOUSERSITE" \
+            "$@"
+        }
+        clean_env pytest \
           'tests/distributed/test_hccl_all_to_all_single_async_unequal_multicard.py::test_hccl_all_to_all_single_async_unequal_multicard[4-29724]' \
           'tests/distributed/test_hccl_all_to_all_single_invalid_splits_multicard.py::test_hccl_all_to_all_single_invalid_split_pairing_multicard[4-29725]' \
           'tests/distributed/test_hccl_all_to_all_single_split_numel_validation_multicard.py::test_hccl_all_to_all_single_split_numel_validation_multicard[input_sum_mismatch-4-29726]' \
           'tests/distributed/test_hccl_all_to_all_single_split_numel_validation_multicard.py::test_hccl_all_to_all_single_split_numel_validation_multicard[output_sum_mismatch-4-29726]' \
           -v -rs --tb=short | tee /tmp/candle-hccl-4card.log
-        if rg -n "SKIPPED|skipped" /tmp/candle-hccl-4card.log; then
+        if grep -nE "SKIPPED|skipped" /tmp/candle-hccl-4card.log; then
           echo "4-card HCCL coverage unexpectedly skipped tests" >&2
           exit 1
         fi
