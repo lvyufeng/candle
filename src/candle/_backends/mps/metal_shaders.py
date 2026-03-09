@@ -17,7 +17,7 @@ DTYPE_MAP = [
 
 _FLOAT_TYPES = ("float", "half")
 _ALL_TYPES = tuple(t for t, _ in DTYPE_MAP)
-_SUFFIX = {t: s for t, s in DTYPE_MAP}
+_SUFFIX = dict(DTYPE_MAP)
 
 # Ops that require math functions — only valid for float/half
 _FLOAT_ONLY_OPS = frozenset({
