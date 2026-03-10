@@ -97,7 +97,8 @@ def remove_weight_norm(module, name='weight'):
     # Remove forward pre-hooks that were added by weight_norm.
     # We identify them by checking for the closure variable ``_name``.
     keys_to_remove = []
-    for key, hook in module._forward_pre_hooks.items():
+    for key, hook_entry in module._forward_pre_hooks.items():
+        hook = hook_entry[0] if isinstance(hook_entry, tuple) else hook_entry
         # Check if this hook is a weight_norm hook by inspecting its closure
         if hasattr(hook, '__closure__') and hook.__closure__:
             for cell in hook.__closure__:
