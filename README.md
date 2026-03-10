@@ -37,11 +37,21 @@ PyTorch is powerful — but it's also **2GB+ of C++ binaries**, hard to install 
 
 ### Install
 
+For the current source workflow:
+
 ```bash
-pip install candle
+git clone https://github.com/candle-org/candle.git
+cd candle
+pip install -e ".[test]"
 ```
 
-That's it. No CUDA toolkit, no compiler, no 10-minute build.
+If you only need the base package without test dependencies:
+
+```bash
+pip install -e .
+```
+
+Ascend NPU users must install CANN first and follow [docs/install-npu.md](docs/install-npu.md) before running device code.
 
 ### Write code the way you already know
 
@@ -60,6 +70,28 @@ x = torch.randn(2, 784, requires_grad=True)
 out = model(x)
 out.sum().backward()
 print(x.grad.shape)  # (2, 784)
+```
+
+### Ascend NPU quick start (0.1 GA path)
+
+See [docs/install-npu.md](docs/install-npu.md) for the full environment prerequisites. On a supported Ascend 910B host:
+
+```bash
+if [ -f /usr/local/Ascend/ascend-toolkit/latest/set_env.sh ]; then
+  source /usr/local/Ascend/ascend-toolkit/latest/set_env.sh
+fi
+export PYTHONPATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:${PYTHONPATH:-}
+python - <<'PY'
+import candle as torch
+
+assert torch.npu.is_available(verbose=True)
+x = torch.randn((4, 8), device='npu')
+w = torch.randn((8, 2), device='npu', requires_grad=True)
+y = torch.matmul(x, w)
+y.sum().backward()
+print(torch.npu.get_device_name())
+print(y.device)
+PY
 ```
 
 ### Or just `import torch` — seriously
@@ -101,6 +133,8 @@ candle.device("npu")    # Huawei Ascend (ACLNN)
 ```
 
 ### Ascend NPU — First-Class Support
+
+Candle's current `0.1.x` GA target is a single-card Ascend 910B training path. Install and runtime prerequisites are documented in [docs/install-npu.md](docs/install-npu.md), and the validated release surface is summarized in [docs/support-matrix.md](docs/support-matrix.md).
 
 Unlike wrapper libraries, Candle calls **ACLNN large kernels directly** via ctypes — no framework overhead, no Python-to-C++ bridge:
 
