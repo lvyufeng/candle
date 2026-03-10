@@ -42,6 +42,13 @@ class FSDPParam:
         """Chunk *param* along ``self._shard_dim`` and wrap as DTensor."""
         rank = self._mesh_info.shard_mesh_rank
         world_size = self._mesh_info.shard_mesh_size
+        if world_size > 1 and param.shape[self._shard_dim] % world_size != 0:
+            raise ValueError(
+                f"FSDP requires parameter '{self._param_name}' dim "
+                f"{self._shard_dim} size ({param.shape[self._shard_dim]}) "
+                f"to be divisible by world_size ({world_size}). "
+                f"Padding support is not yet implemented."
+            )
         orig_requires_grad = param.requires_grad
         if world_size == 1:
             local_shard = param.detach()

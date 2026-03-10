@@ -30,6 +30,8 @@ class FSDPState:
         """Pre-forward: all-gather to reconstruct full parameters."""
         if self._is_root is None:
             self._lazy_init_root()
+        # Clear stale backward hook handles from previous iteration
+        self._pre_backward_hook_handles.clear()
         self.param_group.pre_forward()
         return args, kwargs
 
@@ -91,7 +93,14 @@ class FSDPState:
 
 
 def _has_parent_fsdp(module):
-    return False  # MVP: root detection via fully_shard order
+    # TODO: Implement proper parent detection for multi-level FSDP nesting.
+    # nn.Module has no parent reference, so detection requires either:
+    #   (a) walking the root module tree, or
+    #   (b) marking parent status during bottom-up fully_shard() calls.
+    # For the MVP, all modules are treated as root. This is correct when
+    # fully_shard() is called on a single module or on a flat set of modules,
+    # but will need fixing for nested FSDP wrapping (e.g. per-layer sharding).
+    return False
 
 
 def _extract_tensors_from_output(output):
