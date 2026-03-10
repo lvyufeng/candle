@@ -1,0 +1,87 @@
+name: Transformers Compat
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"           # every Monday 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Single model to test (empty = use tier)"
+        required: false
+        default: ""
+      tier:
+        description: "Tier level (1, 2, or 3)"
+        required: false
+        default: "1"
+      transformers_ref:
+        description: "transformers git ref override"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  compat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+    steps:
+      - name: Checkout candle
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install candle
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Install compat dependencies
+        run: |
+          pip install -r compat/requirements.txt
+
+      - name: Run compatibility tests
+        env:
+          USE_CANDLE: "1"
+        run: |
+          MODEL_ARG=""
+          if [ -n "${{ github.event.inputs.model }}" ]; then
+            MODEL_ARG="--model ${{ github.event.inputs.model }}"
+          fi
+
+          REF_ARG=""
+          if [ -n "${{ github.event.inputs.transformers_ref }}" ]; then
+            REF_ARG="--transformers-ref ${{ github.event.inputs.transformers_ref }}"
+          fi
+
+          TIER="${{ github.event.inputs.tier || '1' }}"
+
+          python compat/run.py \
+            --tier "$TIER" \
+            $MODEL_ARG \
+            $REF_ARG \
+            --json-report compat/_reports/report.json \
+            -v --tb=short
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-report
+          path: compat/_reports/report.json
+          if-no-files-found: ignore
+
+      - name: Post summary
+        if: always()
+        run: |
+          if [ -f compat/_reports/report.json ]; then
+            python compat/run.py --summarize compat/_reports/report.json >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No report generated" >> "$GITHUB_STEP_SUMMARY"
+          fi
