@@ -29,7 +29,6 @@ class Shard(Placement):
 
 class Replicate(Placement):
     """Tensor is replicated across all ranks in the mesh."""
-    pass
 
 
 class Partial(Placement):
