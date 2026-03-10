@@ -1,0 +1,29 @@
+# Known test failures for candle x transformers compatibility
+#
+# Format per model:
+#   - pattern: "glob pattern matching test node ID"
+#     reason: "short explanation of why this fails"
+#
+# Workflow:
+#   1. First run -> many FAILs -> batch-add here with reason categories
+#   2. Fix candle bug -> FAIL becomes XPASS -> remove from this file
+#   3. Over time this file shrinks = compatibility improves
+#
+# Entries under _global apply to all models.
+# Entries under a model name (e.g., bert) apply only to that model's tests.
+
+_global:
+  - pattern: "test_.*sdpa.*"
+    reason: "SDPA optimization paths not implemented"
+  - pattern: "test_.*gradient_checkpointing.*"
+    reason: "gradient checkpointing not implemented"
+  - pattern: "test_torch_compile.*"
+    reason: "torch.compile not implemented"
+  - pattern: "test_.*flash_attn.*"
+    reason: "flash attention not implemented"
+  - pattern: "test_.*quantiz.*"
+    reason: "quantization not implemented"
+
+bert: []
+gpt2: []
+t5: []

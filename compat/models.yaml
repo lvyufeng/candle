@@ -1,0 +1,38 @@
+# Transformers compatibility test configuration
+# Used by compat/run.py to select which model tests to run
+
+transformers_ref: "v4.47.0"      # pinned version (shallow clone)
+
+tier1:                            # must pass (release blocker)
+  - bert
+  - gpt2
+  - t5
+
+tier2:                            # important models
+  - llama
+  - roberta
+  - distilbert
+  - bart
+
+tier3:                            # extended coverage
+  - opt
+  - bloom
+  - mistral
+  - gemma
+  - qwen2
+
+# Global deselect: these test name patterns are never collected
+deselect_patterns:
+  - "*Integration*"              # needs pretrained weights download
+  - "*ONNX*"                     # ONNX export not implemented
+  - "*TF*"                       # TensorFlow tests
+  - "*Flax*"                     # JAX tests
+
+# Global skip: tests with these markers are auto-skipped
+skip_markers:
+  - slow
+  - require_torch_gpu
+  - require_torch_multi_gpu
+  - require_flash_attn
+  - require_bitsandbytes
+  - require_accelerate
