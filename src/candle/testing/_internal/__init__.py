@@ -15,3 +15,9 @@ from .common_utils import (
     freeze_rng_state, parametrize, subtest,
     TEST_WITH_ROCM, TEST_WITH_ASAN, TEST_WITH_TSAN,
 )
+
+from .common_device_type import (
+    instantiate_device_type_tests, dtypes, onlyCPU, onlyCUDA,
+    onlyNativeDeviceTypes, deviceCountAtLeast,
+    skipCPUIf, skipCUDAIf,
+)
