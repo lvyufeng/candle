@@ -547,3 +547,49 @@ def test_multilabel_margin_loss_wrapper_exists_basic():
     # sum=0.8, divide by C=4 -> 0.2
     expected = torch.tensor(0.2, device='cpu')
     assert torch.allclose(loss, expected, atol=1e-6)
+
+
+def test_native_channel_shuffle_wrapper_exists_matches_channel_shuffle():
+    x = torch.tensor([[[1.0], [2.0], [3.0], [4.0]]], device='cpu')  # (N=1,C=4,L=1)
+    out = F.native_channel_shuffle(x, groups=2)
+
+    # Compare against torch reference on CPU using detached numpy values.
+    import torch as torch_ref
+    x_ref = torch_ref.tensor(x.numpy())
+    ref = torch_ref.nn.functional.native_channel_shuffle(x_ref, groups=2)
+
+    assert out.shape == x.shape
+    np.testing.assert_allclose(out.numpy(), ref.numpy(), rtol=1e-6, atol=1e-6)
+
+
+def test_triplet_margin_with_distance_loss_wrapper_exists():
+    anchor = torch.tensor([[0.0, 0.0]], device='cpu')
+    positive = torch.tensor([[1.0, 0.0]], device='cpu')
+    negative = torch.tensor([[3.0, 0.0]], device='cpu')
+    loss = F.triplet_margin_with_distance_loss(anchor, positive, negative, margin=1.0, reduction='mean')
+    # d(ap)=1, d(an)=3 => max(1 - 3 + 1, 0)=0
+    expected = torch.tensor(0.0, device='cpu')
+    assert torch.allclose(loss, expected, atol=1e-6)
+
+
+def test_conv_tbc_wrapper_exists():
+    # T=3, B=1, C_in=2
+    x = torch.tensor([
+        [[1.0, 2.0]],
+        [[3.0, 4.0]],
+        [[5.0, 6.0]],
+    ], device='cpu')
+    # weight shape: (K=2, C_in=2, C_out=1)
+    w = torch.tensor([
+        [[1.0], [1.0]],
+        [[1.0], [1.0]],
+    ], device='cpu')
+    b = torch.tensor([0.0], device='cpu')
+    out = F.conv_tbc(x, w, b, pad=0)
+    # out[t] = sum over k,c of x[t+k,c]*w[k,c]
+    expected = torch.tensor([
+        [[10.0]],
+        [[18.0]],
+    ], device='cpu')
+    assert out.shape == (2, 1, 1)
+    assert torch.allclose(out, expected, atol=1e-6)

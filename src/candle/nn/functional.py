@@ -236,6 +236,15 @@ def conv_transpose2d(input, weight, bias=None, stride=1, padding=0,
                     _stride, _padding, _output_padding, groups, _dilation)
 
 
+
+
+def conv_tbc(input, weight, bias, pad=0):
+    # torch conv_tbc: input (T, B, C_in), weight (K, C_in, C_out), bias (C_out)
+    x = input.permute(1, 2, 0)
+    w = weight.permute(2, 1, 0)
+    y = conv1d(x, w, bias=bias, stride=1, padding=pad, dilation=1, groups=1)
+    return y.permute(2, 0, 1)
+
 def conv3d(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1):
     from .._dispatch import dispatch
     _stride = (stride, stride, stride) if isinstance(stride, int) else tuple(stride)
@@ -856,6 +865,37 @@ def triplet_margin_loss(anchor, positive, negative, margin=1.0, p=2, eps=1e-6,
     raise ValueError(f"Invalid reduction mode: {reduction}")
 
 
+
+
+def triplet_margin_with_distance_loss(anchor, positive, negative, *, distance_function=None, margin=1.0, swap=False, reduction='mean'):
+    from .._functional import add, neg, mean, sum as _sum, clamp
+    from .._creation import tensor as _tensor
+    from .._dispatch import dispatch
+
+    if distance_function is None:
+        dist_ap = pairwise_distance(anchor, positive)
+        dist_an = pairwise_distance(anchor, negative)
+    else:
+        dist_ap = distance_function(anchor, positive)
+        dist_an = distance_function(anchor, negative)
+
+    if swap:
+        if distance_function is None:
+            dist_pn = pairwise_distance(positive, negative)
+        else:
+            dist_pn = distance_function(positive, negative)
+        dist_an = dispatch('min', anchor.device.type, dist_an, dist_pn)
+
+    margin_t = _tensor(float(margin), device=anchor.device)
+    losses = clamp(add(add(dist_ap, neg(dist_an)), margin_t), 0.0, None)
+    if reduction == 'none':
+        return losses
+    if reduction == 'mean':
+        return mean(losses)
+    if reduction == 'sum':
+        return _sum(losses)
+    raise ValueError(f'Invalid reduction mode: {reduction}')
+
 def hinge_embedding_loss(input, target, margin=1.0, reduction='mean'):
     from .._functional import add, neg, mean, sum as _sum, clamp, where
     from .._creation import tensor as _tensor
@@ -1239,6 +1279,18 @@ def pixel_unshuffle(input, downscale_factor):
     # Reshape: (N, C*r^2, H, W)
     x = dispatch("reshape", input.device.type, x, (N, C * r * r, H, W))
     return x
+
+
+def native_channel_shuffle(input, groups):
+    if input.ndim == 3:
+        n, c, l = input.shape
+        if c % groups != 0:
+            raise ValueError('Number of channels must be divisible by groups')
+        channels_per_group = c // groups
+        x = input.reshape((n, groups, channels_per_group, l))
+        x = x.permute((0, 2, 1, 3)).contiguous()
+        return x.reshape((n, c, l))
+    return channel_shuffle(input, groups)
 
 
 def channel_shuffle(input, groups):
