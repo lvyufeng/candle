@@ -1,1 +1,2 @@
-"""torch.distributed._composable stub - not available in candle."""
+"""torch.distributed._composable -- composable distributed APIs."""
+from .fsdp import fully_shard, FSDPModule

@@ -25,15 +25,31 @@ class Module:
         super().__setattr__(name, value)
 
     def __call__(self, *args, **kwargs):
-        for hook in self._forward_pre_hooks_dict.values():
-            result = hook(self, args)
-            if result is not None:
-                if not isinstance(result, tuple):
-                    result = (result,)
-                args = result
+        for hook_entry in self._forward_pre_hooks_dict.values():
+            if isinstance(hook_entry, tuple):
+                hook, with_kwargs = hook_entry
+            else:
+                hook, with_kwargs = hook_entry, False
+            if with_kwargs:
+                result = hook(self, args, kwargs)
+                if result is not None:
+                    args, kwargs = result
+            else:
+                result = hook(self, args)
+                if result is not None:
+                    if not isinstance(result, tuple):
+                        result = (result,)
+                    args = result
         result = self.forward(*args, **kwargs)
-        for hook in self._forward_hooks_dict.values():
-            hook_result = hook(self, args, result)
+        for hook_entry in self._forward_hooks_dict.values():
+            if isinstance(hook_entry, tuple):
+                hook, with_kwargs = hook_entry
+            else:
+                hook, with_kwargs = hook_entry, False
+            if with_kwargs:
+                hook_result = hook(self, args, kwargs, result)
+            else:
+                hook_result = hook(self, args, result)
             if hook_result is not None:
                 result = hook_result
         return result
@@ -373,14 +389,18 @@ class Module:
         """Register a forward hook."""
         hook_id = self._next_hook_id
         self._next_hook_id += 1
-        self._forward_hooks_dict[hook_id] = hook
+        self._forward_hooks_dict[hook_id] = (hook, with_kwargs)
+        if prepend:
+            self._forward_hooks_dict.move_to_end(hook_id, last=False)
         return _RemovableHandle(self._forward_hooks_dict, hook_id)
 
     def register_forward_pre_hook(self, hook, *, prepend=False, with_kwargs=False):
         """Register a forward pre-hook."""
         hook_id = self._next_hook_id
         self._next_hook_id += 1
-        self._forward_pre_hooks_dict[hook_id] = hook
+        self._forward_pre_hooks_dict[hook_id] = (hook, with_kwargs)
+        if prepend:
+            self._forward_pre_hooks_dict.move_to_end(hook_id, last=False)
         return _RemovableHandle(self._forward_pre_hooks_dict, hook_id)
 
     def register_backward_hook(self, hook):

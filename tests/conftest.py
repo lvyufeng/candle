@@ -57,10 +57,24 @@ _NPU_DIRS = (os.sep + "npu" + os.sep, os.sep + "distributed" + os.sep)
 _MPS_DIR = os.sep + "mps" + os.sep
 
 
+def _is_gloo_test(item: pytest.Item) -> bool:
+    """Test uses Gloo backend (CPU-only, does NOT require NPU hardware)."""
+    return "gloo" in os.path.basename(str(item.fspath)).lower()
+
+
 def _in_npu_dir(item: pytest.Item) -> bool:
-    """Test lives under tests/npu/ or tests/distributed/ (requires NPU)."""
+    """Test lives under tests/npu/ or tests/distributed/ (requires NPU).
+
+    Gloo-based tests in tests/distributed/ are excluded because they run
+    on CPU without any accelerator hardware.
+    """
     fspath = str(item.fspath)
-    return any(d in fspath for d in _NPU_DIRS)
+    if not any(d in fspath for d in _NPU_DIRS):
+        return False
+    # Gloo tests run on CPU -- do not skip them
+    if _is_gloo_test(item):
+        return False
+    return True
 
 
 def _in_mps_dir(item: pytest.Item) -> bool:

@@ -56,12 +56,18 @@ def range(start, end, step=1, dtype=float32, device=None):
     return range_dispatch(start, end, step=step, dtype=dtype, device=device)
 
 
-def randn(*shape, dtype=float32, device=None, memory_format=None, generator=None):
-    return randn_dispatch(*shape, dtype=dtype, device=device, memory_format=memory_format, generator=generator)
+def randn(*shape, dtype=float32, device=None, memory_format=None, generator=None, requires_grad=False):
+    out = randn_dispatch(*shape, dtype=dtype, device=device, memory_format=memory_format, generator=generator)
+    if requires_grad:
+        out.requires_grad_(True)
+    return out
 
 
-def rand(*shape, dtype=float32, device=None, memory_format=None, generator=None):
-    return rand_dispatch(*shape, dtype=dtype, device=device, memory_format=memory_format, generator=generator)
+def rand(*shape, dtype=float32, device=None, memory_format=None, generator=None, requires_grad=False):
+    out = rand_dispatch(*shape, dtype=dtype, device=device, memory_format=memory_format, generator=generator)
+    if requires_grad:
+        out.requires_grad_(True)
+    return out
 
 
 def randint(low, high=None, size=None, *, dtype=None, device=None, generator=None):

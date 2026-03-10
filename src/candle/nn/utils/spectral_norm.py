@@ -129,7 +129,8 @@ def remove_spectral_norm(module, name='weight'):
 
     # Remove forward pre-hooks
     keys_to_remove = []
-    for key, hook in module._forward_pre_hooks.items():
+    for key, hook_entry in module._forward_pre_hooks.items():
+        hook = hook_entry[0] if isinstance(hook_entry, tuple) else hook_entry
         if hasattr(hook, '__closure__') and hook.__closure__:
             for cell in hook.__closure__:
                 try:
