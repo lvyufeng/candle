@@ -42,6 +42,7 @@ class FSDPParam:
         """Chunk *param* along ``self._shard_dim`` and wrap as DTensor."""
         rank = self._mesh_info.shard_mesh_rank
         world_size = self._mesh_info.shard_mesh_size
+        orig_requires_grad = param.requires_grad
         if world_size == 1:
             local_shard = param.detach()
         else:
@@ -49,11 +50,13 @@ class FSDPParam:
                 param.detach(), world_size, dim=self._shard_dim
             )
             local_shard = chunks[rank].contiguous()
-        return DTensor.from_local(
+        dt = DTensor.from_local(
             local_shard,
             self._mesh_info.mesh,
             placements=(Shard(self._shard_dim),),
         )
+        dt.requires_grad = orig_requires_grad
+        return dt
 
     # ------------------------------------------------------------------
     # Unshard / reshard
