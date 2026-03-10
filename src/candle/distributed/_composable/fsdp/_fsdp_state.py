@@ -84,7 +84,6 @@ class FSDPState:
             fsdp_param.reduce_scatter_grad(grad)
         self._pending_grads.clear()
         self.param_group.reshard()
-
     def _lazy_init_root(self):
         self._is_root = not _has_parent_fsdp(self.module)
         # Root-level initialization: in a full FSDP tree, fully_shard()
