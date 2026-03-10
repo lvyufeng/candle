@@ -108,11 +108,20 @@ class FSDPParam:
     # Gradient reduce-scatter
     # ------------------------------------------------------------------
 
-    def reduce_scatter_grad(self):
-        """Reduce-scatter the unsharded gradient back to the shard."""
-        if self._unsharded_param is None:
-            return
-        grad = self._unsharded_param.grad
+    def reduce_scatter_grad(self, grad=None):
+        """Reduce-scatter the unsharded gradient back to the shard.
+
+        Parameters
+        ----------
+        grad : Tensor, optional
+            The full (unsharded) gradient.  When called from a post-backward
+            hook, *grad* is the gradient received by the hook.  When *None*,
+            falls back to ``self._unsharded_param.grad``.
+        """
+        if grad is None:
+            if self._unsharded_param is None:
+                return
+            grad = self._unsharded_param.grad
         if grad is None:
             return
         world_size = self._mesh_info.shard_mesh_size

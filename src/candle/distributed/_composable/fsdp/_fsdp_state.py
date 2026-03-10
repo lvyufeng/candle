@@ -55,6 +55,7 @@ class FSDPState:
 
     def _register_post_backward_hooks(self):
         self._grad_count = 0
+        self._pending_grads = {}
         for fsdp_param in self.param_group.fsdp_params:
             unsharded = fsdp_param._unsharded_param
             if unsharded is not None and unsharded.requires_grad:
@@ -64,12 +65,23 @@ class FSDPState:
 
     def _make_post_backward_hook(self, fsdp_param):
         def hook(grad):
+            # Capture the gradient from the autograd engine and store it
+            # keyed by fsdp_param so post_backward can pass it to
+            # reduce_scatter_grad.
+            self._pending_grads[id(fsdp_param)] = (fsdp_param, grad)
             self._grad_count += 1
             if self._grad_count >= self._total_managed_params:
-                self.param_group.post_backward()
+                self._post_backward_all()
                 self._grad_count = 0
             return grad
         return hook
+
+    def _post_backward_all(self):
+        """Reduce-scatter captured gradients and reshard."""
+        for fsdp_param, grad in self._pending_grads.values():
+            fsdp_param.reduce_scatter_grad(grad)
+        self._pending_grads.clear()
+        self.param_group.reshard()
 
     def _lazy_init_root(self):
         self._is_root = not _has_parent_fsdp(self.module)
