@@ -2461,15 +2461,13 @@ def batch_norm(input, running_mean, running_var, weight=None, bias=None,
             if running_mean is not None:
                 rm_np = running_mean._storage.data.ravel().astype(np.float32)
                 new_rm = ((1 - momentum) * rm_np + momentum * mean_np).astype(
-                    to_numpy_dtype(running_mean.dtype))
-                rm_ptr = buffer_contents(_metal_buf(running_mean))
-                ctypes.memmove(rm_ptr, new_rm.ctypes.data, new_rm.nbytes)
+                    running_mean._storage.data.dtype)
+                running_mean._storage.data[:] = new_rm
             if running_var is not None:
                 rv_np = running_var._storage.data.ravel().astype(np.float32)
                 new_rv = ((1 - momentum) * rv_np + momentum * var_np).astype(
-                    to_numpy_dtype(running_var.dtype))
-                rv_ptr = buffer_contents(_metal_buf(running_var))
-                ctypes.memmove(rv_ptr, new_rv.ctypes.data, new_rv.nbytes)
+                    running_var._storage.data.dtype)
+                running_var._storage.data[:] = new_rv
         else:
             # Eval mode: use running stats
             rm_np = _to_numpy(running_mean).astype(np.float32)
@@ -2516,11 +2514,13 @@ def batch_norm(input, running_mean, running_var, weight=None, bias=None,
         mean = arr.mean(axis=axes)
         var = arr.var(axis=axes)
         if running_mean is not None:
-            rm = _to_numpy(running_mean)
-            rm[:] = (1 - momentum) * rm + momentum * mean
+            rm = running_mean._storage.data.ravel()
+            new_rm = (1 - momentum) * rm + momentum * mean
+            running_mean._storage.data[:] = new_rm.astype(rm.dtype)
         if running_var is not None:
-            rv = _to_numpy(running_var)
-            rv[:] = (1 - momentum) * rv + momentum * var
+            rv = running_var._storage.data.ravel()
+            new_rv = (1 - momentum) * rv + momentum * var
+            running_var._storage.data[:] = new_rv.astype(rv.dtype)
     else:
         mean = _to_numpy(running_mean)
         var = _to_numpy(running_var)
