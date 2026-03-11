@@ -25,6 +25,8 @@ env:
   ASCEND_REQUIRED_GROUP: HwHiAiUser
   PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
   PYTHONNOUSERSITE: '1'
+  CANN_ROOT_OVERRIDE: /usr/local/Ascend/ascend-toolkit/8.3.RC2
+  CANN_OPP_OVERRIDE: /usr/local/Ascend/ascend-toolkit/8.3.RC2/opp
 
 jobs:
   test-npu:
@@ -61,6 +63,8 @@ jobs:
           source "$ASCEND_ENV_SCRIPT"
           export PYTHONPATH="${ASCEND_TOOLKIT_HOME}/python/site-packages:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe:"
           export LD_LIBRARY_PATH="${ASCEND_TOOLKIT_HOME}/tools/aml/lib64:${ASCEND_TOOLKIT_HOME}/tools/aml/lib64/plugin:${ASCEND_TOOLKIT_HOME}/lib64:${ASCEND_TOOLKIT_HOME}/lib64/plugin/opskernel:${ASCEND_TOOLKIT_HOME}/lib64/plugin/nnengine:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver"
+          export CANN_ROOT_OVERRIDE="$CANN_ROOT_OVERRIDE"
+          export CANN_OPP_OVERRIDE="$CANN_OPP_OVERRIDE"
         }
         setup_ascend_env
         # Run test-facing commands in a minimal env so runner-local Python state does not leak into pytest.
@@ -95,6 +99,8 @@ jobs:
           source "$ASCEND_ENV_SCRIPT"
           export PYTHONPATH="${ASCEND_TOOLKIT_HOME}/python/site-packages:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe:"
           export LD_LIBRARY_PATH="${ASCEND_TOOLKIT_HOME}/tools/aml/lib64:${ASCEND_TOOLKIT_HOME}/tools/aml/lib64/plugin:${ASCEND_TOOLKIT_HOME}/lib64:${ASCEND_TOOLKIT_HOME}/lib64/plugin/opskernel:${ASCEND_TOOLKIT_HOME}/lib64/plugin/nnengine:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver"
+          export CANN_ROOT_OVERRIDE="$CANN_ROOT_OVERRIDE"
+          export CANN_OPP_OVERRIDE="$CANN_OPP_OVERRIDE"
         }
         setup_ascend_env
         clean_env() {
@@ -128,6 +134,8 @@ jobs:
           source "$ASCEND_ENV_SCRIPT"
           export PYTHONPATH="${ASCEND_TOOLKIT_HOME}/python/site-packages:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe:"
           export LD_LIBRARY_PATH="${ASCEND_TOOLKIT_HOME}/tools/aml/lib64:${ASCEND_TOOLKIT_HOME}/tools/aml/lib64/plugin:${ASCEND_TOOLKIT_HOME}/lib64:${ASCEND_TOOLKIT_HOME}/lib64/plugin/opskernel:${ASCEND_TOOLKIT_HOME}/lib64/plugin/nnengine:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver"
+          export CANN_ROOT_OVERRIDE="$CANN_ROOT_OVERRIDE"
+          export CANN_OPP_OVERRIDE="$CANN_OPP_OVERRIDE"
         }
         setup_ascend_env
         clean_env() {
@@ -187,6 +195,8 @@ jobs:
           source "$ASCEND_ENV_SCRIPT"
           export PYTHONPATH="${ASCEND_TOOLKIT_HOME}/python/site-packages:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe:"
           export LD_LIBRARY_PATH="${ASCEND_TOOLKIT_HOME}/tools/aml/lib64:${ASCEND_TOOLKIT_HOME}/tools/aml/lib64/plugin:${ASCEND_TOOLKIT_HOME}/lib64:${ASCEND_TOOLKIT_HOME}/lib64/plugin/opskernel:${ASCEND_TOOLKIT_HOME}/lib64/plugin/nnengine:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver"
+          export CANN_ROOT_OVERRIDE="$CANN_ROOT_OVERRIDE"
+          export CANN_OPP_OVERRIDE="$CANN_OPP_OVERRIDE"
         }
         setup_ascend_env
         clean_env() {
@@ -220,6 +230,8 @@ jobs:
           source "$ASCEND_ENV_SCRIPT"
           export PYTHONPATH="${ASCEND_TOOLKIT_HOME}/python/site-packages:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe:"
           export LD_LIBRARY_PATH="${ASCEND_TOOLKIT_HOME}/tools/aml/lib64:${ASCEND_TOOLKIT_HOME}/tools/aml/lib64/plugin:${ASCEND_TOOLKIT_HOME}/lib64:${ASCEND_TOOLKIT_HOME}/lib64/plugin/opskernel:${ASCEND_TOOLKIT_HOME}/lib64/plugin/nnengine:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver"
+          export CANN_ROOT_OVERRIDE="$CANN_ROOT_OVERRIDE"
+          export CANN_OPP_OVERRIDE="$CANN_OPP_OVERRIDE"
         }
         setup_ascend_env
         clean_env() {
@@ -253,6 +265,8 @@ jobs:
           source "$ASCEND_ENV_SCRIPT"
           export PYTHONPATH="${ASCEND_TOOLKIT_HOME}/python/site-packages:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe:"
           export LD_LIBRARY_PATH="${ASCEND_TOOLKIT_HOME}/tools/aml/lib64:${ASCEND_TOOLKIT_HOME}/tools/aml/lib64/plugin:${ASCEND_TOOLKIT_HOME}/lib64:${ASCEND_TOOLKIT_HOME}/lib64/plugin/opskernel:${ASCEND_TOOLKIT_HOME}/lib64/plugin/nnengine:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver"
+          export CANN_ROOT_OVERRIDE="$CANN_ROOT_OVERRIDE"
+          export CANN_OPP_OVERRIDE="$CANN_OPP_OVERRIDE"
         }
         setup_ascend_env
         clean_env() {
@@ -287,6 +301,8 @@ jobs:
           source "$ASCEND_ENV_SCRIPT"
           export PYTHONPATH="${ASCEND_TOOLKIT_HOME}/python/site-packages:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe:"
           export LD_LIBRARY_PATH="${ASCEND_TOOLKIT_HOME}/tools/aml/lib64:${ASCEND_TOOLKIT_HOME}/tools/aml/lib64/plugin:${ASCEND_TOOLKIT_HOME}/lib64:${ASCEND_TOOLKIT_HOME}/lib64/plugin/opskernel:${ASCEND_TOOLKIT_HOME}/lib64/plugin/nnengine:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver"
+          export CANN_ROOT_OVERRIDE="$CANN_ROOT_OVERRIDE"
+          export CANN_OPP_OVERRIDE="$CANN_OPP_OVERRIDE"
         }
         setup_ascend_env
         clean_env() {
@@ -355,6 +371,8 @@ jobs:
           source "$ASCEND_ENV_SCRIPT"
           export PYTHONPATH="${ASCEND_TOOLKIT_HOME}/python/site-packages:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe:"
           export LD_LIBRARY_PATH="${ASCEND_TOOLKIT_HOME}/tools/aml/lib64:${ASCEND_TOOLKIT_HOME}/tools/aml/lib64/plugin:${ASCEND_TOOLKIT_HOME}/lib64:${ASCEND_TOOLKIT_HOME}/lib64/plugin/opskernel:${ASCEND_TOOLKIT_HOME}/lib64/plugin/nnengine:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver"
+          export CANN_ROOT_OVERRIDE="$CANN_ROOT_OVERRIDE"
+          export CANN_OPP_OVERRIDE="$CANN_OPP_OVERRIDE"
         }
         setup_ascend_env
         clean_env() {

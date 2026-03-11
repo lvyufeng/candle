@@ -116,6 +116,12 @@ def _detect():
     if _detected:
         return
     _detected = True
+    override = os.environ.get("CANN_ROOT_OVERRIDE")
+    if override and os.path.isdir(override):
+        _cann_root = override
+        _cann_style = "new" if os.path.basename(override).startswith("cann-") else "old"
+        _cann_version = _parse_version(os.path.basename(override))
+        return
     installs = _scan_installations()
     if installs:
         _cann_version, _cann_style, _cann_root = installs[0]
@@ -158,6 +164,9 @@ def get_python_dirs():
 
 def get_opp_dir():
     _detect()
+    override = os.environ.get("CANN_OPP_OVERRIDE")
+    if override and os.path.isdir(override):
+        return override
     if _cann_root is None:
         return None
     return _get_opp_dir(_cann_root)

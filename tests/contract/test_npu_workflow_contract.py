@@ -8,6 +8,8 @@ def test_npu_workflow_partitions_suites_by_runner_pool():
     assert 'workflow_dispatch:' in payload
     assert 'CONDA_EXE: /home/lvyufeng/miniconda3/bin/conda' in payload
     assert 'ASCEND_ENV_SCRIPT: /usr/local/Ascend/ascend-toolkit/8.3.RC2/aarch64-linux/script/set_env.sh' in payload
+    assert 'CANN_ROOT_OVERRIDE: /usr/local/Ascend/ascend-toolkit/8.3.RC2' in payload
+    assert 'CANN_OPP_OVERRIDE: /usr/local/Ascend/ascend-toolkit/8.3.RC2/opp' in payload
     assert 'ASCEND_REQUIRED_GROUP: HwHiAiUser' in payload
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'" in payload
     assert "PYTHONNOUSERSITE: '1'" in payload
