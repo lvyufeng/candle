@@ -187,14 +187,20 @@ class Node:
         new_kwargs[key] = arg
         self.kwargs = new_kwargs
 
-    def replace_all_uses_with(self, replace_with: "Node") -> None:
-        """In every consumer of *self*, replace references to *self* with *replace_with*."""
+    def replace_all_uses_with(self, replace_with: "Node") -> list["Node"]:
+        """In every consumer of *self*, replace references to *self* with *replace_with*.
+
+        Returns the list of Nodes whose args/kwargs were modified.
+        """
+        def _replace(n: "Node") -> "Node":
+            return replace_with if n is self else n
         # Snapshot users because the set mutates during iteration.
+        modified: list[Node] = []
         for user in list(self._users):
-            def _replace(n: "Node") -> "Node":
-                return replace_with if n is self else n
             user.args = _map_arg(user.args, _replace)
             user.kwargs = _map_arg(user.kwargs, _replace)
+            modified.append(user)
+        return modified
 
     def replace_input_with(self, old_input: "Node", new_input: "Node") -> None:
         """Replace *old_input* with *new_input* in this node's args and kwargs."""

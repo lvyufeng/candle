@@ -52,10 +52,12 @@ def test_node_replace_all_uses_with():
     b = g.call_function(operator.neg, (a,))
     c = g.call_function(operator.add, (b, b))
     new = g.placeholder("new")
-    b.replace_all_uses_with(new)
+    modified = b.replace_all_uses_with(new)
     assert c.args == (new, new)
     assert c not in b.users
     assert c in new.users
+    assert isinstance(modified, list)
+    assert c in modified
 
 
 def test_node_replace_input_with():
@@ -144,3 +146,55 @@ def test_node_identity_equality():
     assert a != b
     assert a is not b
     assert a == a
+
+
+def test_node_format_node():
+    """format_node returns a human-readable formatted string."""
+    from candle.fx.graph import Graph
+    g = Graph()
+    x = g.placeholder("x")
+    s = x.format_node()
+    assert "%x" in s
+    assert "placeholder" in s
+
+
+def test_node_kwargs_setter_user_tracking():
+    """Setting kwargs updates users on old and new referenced nodes."""
+    from candle.fx.graph import Graph
+    g = Graph()
+    x = g.placeholder("x")
+    y = g.placeholder("y")
+    z = g.placeholder("z")
+    add = g.call_function(operator.add, (x,), {"other": y})
+    assert add in y.users
+    add.kwargs = {"other": z}
+    assert add not in y.users
+    assert add in z.users
+
+
+def test_node_prepend():
+    """prepend moves a node before self in the linked list."""
+    from candle.fx.graph import Graph
+    g = Graph()
+    a = g.placeholder("a")
+    b = g.placeholder("b")
+    c = g.placeholder("c")
+    # Order: a -> b -> c. Move c before b: a -> c -> b
+    b.prepend(c)
+    assert a.next is c
+    assert c.next is b
+    assert b.prev is c
+
+
+def test_node_append():
+    """append moves a node after self in the linked list."""
+    from candle.fx.graph import Graph
+    g = Graph()
+    a = g.placeholder("a")
+    b = g.placeholder("b")
+    c = g.placeholder("c")
+    # Order: a -> b -> c. Move c after a: a -> c -> b
+    a.append(c)
+    assert a.next is c
+    assert c.next is b
+    assert b.prev is c
