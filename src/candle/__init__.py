@@ -167,6 +167,7 @@ from . import library
 from . import optim
 from . import nn
 from . import jit
+from . import fx
 from . import profiler
 from . import multiprocessing
 from . import linalg
@@ -584,4 +585,5 @@ __all__ = [
     "fft",
     "special",
     "testing",
+    "fx",
 ]

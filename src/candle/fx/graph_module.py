@@ -86,8 +86,14 @@ class GraphModule(Module):
         """Walk the graph and collect modules needed by call_function targets.
 
         For each ``call_function`` node whose target lives in some module
-        (e.g. ``_operator.add``), we import that module and add it to the
-        globals dict so that the ``exec``'d code can reference it.
+        (e.g. ``_operator.add`` or ``candle._functional.add``), we import the
+        **top-level** package and add it to the globals dict so that the
+        ``exec``'d code can resolve dotted attribute access.
+
+        For example, if ``target.__module__`` is ``candle._functional``, the
+        generated code will contain ``candle._functional.add(...)``; Python
+        evaluates this as ``candle`` -> ``._functional`` -> ``.add``, so we
+        need ``candle`` (the top-level package) in globals.
         """
         globals_dict: Dict[str, Any] = {"__builtins__": __builtins__}
 
@@ -96,12 +102,22 @@ class GraphModule(Module):
                 target = node.target
                 mod_name = getattr(target, "__module__", None)
                 if mod_name and mod_name != "builtins":
-                    # Import the module and add it to globals
-                    try:
-                        mod = importlib.import_module(mod_name)
-                        globals_dict[mod_name] = mod
-                    except ImportError:
-                        pass
+                    # For dotted module names (e.g. "candle._functional"),
+                    # import the top-level package so attribute access works.
+                    top_level = mod_name.split(".")[0]
+                    if top_level not in globals_dict:
+                        try:
+                            globals_dict[top_level] = importlib.import_module(top_level)
+                        except ImportError:
+                            pass
+                    # Also ensure the full submodule is imported (so that
+                    # attribute access through the package succeeds even if
+                    # the submodule is lazily loaded).
+                    if "." in mod_name and mod_name not in globals_dict:
+                        try:
+                            importlib.import_module(mod_name)
+                        except ImportError:
+                            pass
 
         return globals_dict
 
