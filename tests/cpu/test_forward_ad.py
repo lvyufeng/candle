@@ -1,0 +1,41 @@
+import pytest
+import candle
+from candle.autograd import forward_ad
+
+
+def test_forward_ad_level_stack_and_make_unpack():
+    x = candle.rand(2)
+    with forward_ad.dual_level():
+        tangent = candle.ones_like(x)
+        dual = forward_ad.make_dual(x, tangent)
+        primal, t = forward_ad.unpack_dual(dual)
+        assert primal is x
+        assert t is tangent
+
+
+def test_forward_ad_nested_levels_isolated():
+    x = candle.rand(2)
+    with forward_ad.dual_level():
+        t1 = candle.ones_like(x)
+        d1 = forward_ad.make_dual(x, t1)
+        with forward_ad.dual_level():
+            t2 = candle.full_like(x, 2.0)
+            d2 = forward_ad.make_dual(x, t2)
+            _, t = forward_ad.unpack_dual(d2)
+            assert t is t2
+        _, t = forward_ad.unpack_dual(d1)
+        assert t is t1
+
+
+def test_forward_ad_requires_active_level():
+    x = candle.rand(2)
+    t = candle.ones_like(x)
+    with pytest.raises(RuntimeError):
+        forward_ad.make_dual(x, t)
+
+
+def test_forward_ad_exit_requires_lifo():
+    with forward_ad.dual_level() as lvl1:
+        with forward_ad.dual_level() as lvl2:
+            with pytest.raises(RuntimeError):
+                forward_ad.exit_dual_level(level=lvl1)

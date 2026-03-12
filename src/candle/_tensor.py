@@ -217,6 +217,31 @@ class Tensor:
     @classmethod
     def __torch_dispatch__(cls, func, types, args=(), kwargs=None):
         return NotImplemented
+
+    def _fw_get(self, level):
+        tangents = getattr(self, "_fw_tangents", None)
+        if not tangents:
+            return None
+        return tangents.get(level)
+
+    def _fw_set(self, level, tangent):
+        tangents = getattr(self, "_fw_tangents", None)
+        if tangents is None:
+            tangents = {}
+            self._fw_tangents = tangents
+        tangents[level] = tangent
+
+    def _fw_clear(self, level):
+        tangents = getattr(self, "_fw_tangents", None)
+        if not tangents:
+            return
+        tangents.pop(level, None)
+        if not tangents:
+            self._fw_tangents = {}
+
+    def _fw_has(self, level):
+        tangents = getattr(self, "_fw_tangents", None)
+        return bool(tangents) and level in tangents
     def storage(self):
         return self._storage
 
