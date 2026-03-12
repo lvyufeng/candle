@@ -92,6 +92,35 @@ def _autograd_binary(name, backward_impl, *, save_inputs=True):
     return wrapper
 
 
+def _autograd_binary_args(name, backward_impl, *, save_inputs=True):
+    def wrapper(a, b, *args, **kwargs):
+        active_keyset = current_dispatch_keyset()
+        raw_keyset = _strip_autograd_keys(active_keyset)
+        out = redispatch(name, raw_keyset, a, b, *args, **kwargs)
+        a_requires_grad = getattr(a, "requires_grad", False)
+        b_requires_grad = getattr(b, "requires_grad", False)
+        if GradMode.enabled and (a_requires_grad or b_requires_grad):
+            node_holder = {}
+
+            def _backward(grad):
+                if save_inputs:
+                    saved_a, saved_b = node_holder["node"].saved_tensors()
+                else:
+                    saved_a, saved_b = a, b
+                backward_keyset = _backward_dispatch_keyset(raw_keyset, active_keyset)
+                return backward_impl(grad, a, b, saved_a, saved_b, backward_keyset, args, kwargs)
+
+            node = Node(_backward, (a, b))
+            node_holder["node"] = node
+            if save_inputs:
+                node.save_for_backward(a, b)
+            out.grad_fn = node
+            out.requires_grad = True
+        return out
+
+    return wrapper
+
+
 def _autograd_unary_args(name, backward_impl, *, cpu_only=False, save_input=True):
     def wrapper(a, *args, **kwargs):
         active_keyset = current_dispatch_keyset()
@@ -365,8 +394,8 @@ def _slice_backward(grad, a, _saved_a, keyset, args, _kwargs):
     return (grad_input,)
 
 
-def _as_strided_scatter_backward(grad, a, _saved_a, keyset, args, _kwargs):
-    src, size, stride, storage_offset = args
+def _as_strided_scatter_backward(grad, a, src, _saved_a, _saved_src, keyset, args, _kwargs):
+    size, stride, storage_offset = args
     offset = a.offset if storage_offset is None else int(storage_offset)
     size = tuple(int(s) for s in size)
     stride = tuple(int(s) for s in stride)
@@ -7223,7 +7252,7 @@ for _entry in (
     ("expand", lambda: _autograd_view("expand", _expand_backward)),
     ("permute", lambda: _autograd_view("permute", _permute_backward)),
     ("slice", lambda: _autograd_unary_args("slice", _slice_backward, save_input=False)),
-    ("as_strided_scatter", lambda: _autograd_unary_args("as_strided_scatter", _as_strided_scatter_backward, save_input=False), False),
+    ("as_strided_scatter", lambda: _autograd_binary_args("as_strided_scatter", _as_strided_scatter_backward, save_inputs=False), False),
     ("getitem", lambda: _autograd_unary_args("getitem", _getitem_backward, save_input=False), False),
     ("narrow", lambda: _autograd_unary_args("narrow", _narrow_backward, save_input=False)),
     ("select", lambda: _autograd_unary_args("select", _select_backward, save_input=False)),

@@ -151,8 +151,10 @@ def test_as_strided_scatter_backward_matches_torch_contract():
 
     candle_input = torch.zeros((6,), dtype=torch.float32).requires_grad_()
     candle_src = torch.tensor([[1.0, 2.0], [3.0, 4.0]], dtype=torch.float32).requires_grad_()
+    candle_src.retain_grad()
     torch_input = real_torch.zeros((6,), dtype=real_torch.float32, requires_grad=True)
     torch_src = real_torch.tensor([[1.0, 2.0], [3.0, 4.0]], dtype=real_torch.float32, requires_grad=True)
+    torch_src.retain_grad()
 
     candle_out = torch._dispatch.dispatch("as_strided_scatter", "cpu", candle_input, candle_src, (2, 2), (2, 1), 0).sum()
     torch_out = real_torch.as_strided_scatter(torch_input, torch_src, (2, 2), (2, 1), 0).sum()
@@ -163,8 +165,9 @@ def test_as_strided_scatter_backward_matches_torch_contract():
     assert candle_input.grad is not None
     assert torch_input.grad is not None
     assert torch_src.grad is not None
+    assert candle_src.grad is not None
     assert candle_input.grad.numpy().tolist() == torch_input.grad.numpy().tolist()
-    assert candle_src.grad is None
+    assert candle_src.grad.numpy().tolist() == torch_src.grad.numpy().tolist()
 
 
 def test_as_strided_offset_out_of_bounds_matches_torch_contract():
