@@ -378,7 +378,7 @@ class CustomOpHandle:
 
             if ctx._to_save is not None:
                 node.save_for_backward(*ctx._to_save)
-                ctx._saved_tensors = node._saved_tensors
+                ctx._saved_tensors = node._saved_tensors_list
 
             if isinstance(output, Tensor):
                 output.grad_fn = node

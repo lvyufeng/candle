@@ -30,7 +30,8 @@ class SavedTensor:
         self._saved_version = None if tensor is None else tensor._version_counter.value
         self._released = False
         self._hooks = None
-        hooks = current_saved_tensors_hooks()
+        self._global_hooks = current_saved_tensors_hooks()
+        hooks = self._global_hooks
         if hooks is None:
             self._packed = None
         else:
@@ -86,7 +87,7 @@ class SavedTensor:
                 f"expected version {self._saved_version} instead. Hint: enable anomaly detection to find the operation that failed to compute its gradient, "
                 "with torch.autograd.set_detect_anomaly(True)."
             )
-        hooks = self._hooks or current_saved_tensors_hooks()
+        hooks = self._hooks or self._global_hooks
         if hooks is None:
             return self._tensor_ref
         _, unpack = hooks
