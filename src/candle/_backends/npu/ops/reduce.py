@@ -526,8 +526,8 @@ def any_(a, dim=None, keepdim=False):
 
 def min_(a, b):
     from . import where
-    from .comparison import isnan, logical_or
-    from .math import add
+    from .math import isnan, add
+    from .comparison import logical_or
     result = _binary_op(a, b, aclnn.minimum, "min")
     nan_mask = logical_or(isnan(a), isnan(b))
     return where(nan_mask, add(a, b), result)
@@ -535,8 +535,8 @@ def min_(a, b):
 
 def max_(a, b):
     from . import where
-    from .comparison import isnan, logical_or
-    from .math import add
+    from .math import isnan, add
+    from .comparison import logical_or
     result = _binary_op(a, b, aclnn.maximum, "max")
     nan_mask = logical_or(isnan(a), isnan(b))
     return where(nan_mask, add(a, b), result)
@@ -554,7 +554,7 @@ def minimum(a, b):
 
 def fmin(a, b):
     from . import where
-    from .comparison import isnan
+    from .math import isnan
     nan_a = isnan(a)
     nan_b = isnan(b)
     return where(nan_a, b, where(nan_b, a, min_(a, b)))
@@ -562,7 +562,7 @@ def fmin(a, b):
 
 def fmax(a, b):
     from . import where
-    from .comparison import isnan
+    from .math import isnan
     nan_a = isnan(a)
     nan_b = isnan(b)
     return where(nan_a, b, where(nan_b, a, max_(a, b)))
@@ -1232,7 +1232,7 @@ def nansum(a, dim=None, keepdim=False):
     Note: aclnnReduceNansum returns 161002 on CANN 8.3.RC2 (Ascend910B).
     """
     from . import where
-    from .comparison import isnan
+    from .math import isnan
     zero = _scalar_to_npu_tensor(0.0, a)
     nan_mask = isnan(a)
     clean = where(nan_mask, zero, a)
@@ -1296,7 +1296,8 @@ def aminmax_aclnn(a, dim=None, keepdim=False):
 def nanmean_op(a, dim=None, keepdim=False):
     """Mean ignoring NaN values. Composite: nansum / count_not_nan."""
     from . import where
-    from .comparison import isnan, logical_not
+    from .math import isnan
+    from .comparison import logical_not
     from .math import div
     nan_mask = isnan(a)
     not_nan = logical_not(nan_mask)
@@ -1418,7 +1419,8 @@ def nanquantile_op(a, q, dim=None, keepdim=False):
     """Quantile ignoring NaN values — sync to CPU for NaN-aware computation."""
     from ...._dispatch.dispatcher import dispatch
     from . import contiguous, where
-    from .comparison import isnan, logical_not
+    from .math import isnan
+    from .comparison import logical_not
     import numpy as _np
 
     # Resolve q to float
@@ -1497,7 +1499,8 @@ def nanmedian_op(a, dim=None, keepdim=False):
     """Median ignoring NaN values."""
     from ...._dispatch.dispatcher import dispatch
     from . import contiguous, index_select, where
-    from .comparison import isnan, logical_not
+    from .math import isnan
+    from .comparison import logical_not
     from .math import div, sub
     import numpy as _np
 
