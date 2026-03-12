@@ -61,3 +61,11 @@ def test_gradient_edge_roundtrip():
     edge = candle.autograd.graph.get_gradient_edge(x)
     assert edge.node is x.grad_fn
     assert edge.output_nr == x.output_nr
+
+
+def test_calculate_shape_util_basic():
+    out = candle.randn(10, 5, requires_grad=True)
+    grad = candle.randn(5, 10, requires_grad=True)
+    out_shape, grad_shape = candle.autograd._calculate_shape(out, grad, False)
+    assert out_shape == (10, 5)
+    assert grad_shape == (5, 10)

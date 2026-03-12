@@ -12,6 +12,15 @@ class _SavedValue:
         return self._value
 
 
+class InputMetadata:
+    def __init__(self, tensor):
+        self.shape = tensor.shape
+        self.dtype = tensor.dtype
+        self.device = tensor.device
+        self.is_nested_tensor = False
+        self.is_cpp_nested_tensor = False
+
+
 class SavedTensor:
     def __init__(self, tensor):
         self._tensor_ref = tensor
