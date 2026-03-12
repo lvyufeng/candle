@@ -9,6 +9,7 @@ from ._helpers import (
     _npu_add_scalar_, npu_index_put_impl,
     _normalize_reduction_dims, _reduce_out_shape,
     _cast_tensor_dtype, _normalize_tensor_sequence_args,
+    _normalize_dim,
     bool_dtype, int32_dtype, int64_dtype, float_dtype,
     npu_typed_storage_from_ptr, reshape,
     aclnn, npu_runtime, npu_state, ops_soc,
@@ -19,14 +20,6 @@ from ...common import view as view_backend
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
-
-def _normalize_dim(dim, ndim):
-    if dim < 0:
-        dim += ndim
-    if dim < 0 or dim >= ndim:
-        raise ValueError("dim out of range")
-    return dim
-
 
 def _normalize_dims_tuple(dims, ndim, name):
     if isinstance(dims, int):
@@ -1134,6 +1127,7 @@ def _flip_310b_fallback(a, dims):
 
 def _diag_310b_fallback(a, diagonal=0):
     from ..creation import empty_create, zeros_create
+    from .math import add, mul
 
     diagonal = int(diagonal)
 
@@ -1178,6 +1172,8 @@ def _diag_310b_fallback(a, diagonal=0):
 
 def _gather_310b_fallback(a, dim, index):
     from ..creation import ones_create, zeros_create
+    from .math import mul
+    from .reduce import sum_
 
     dim = _normalize_dim(dim, a.dim())
     dim_size = int(a.shape[dim])
@@ -1723,6 +1719,7 @@ def one_hot(indices, num_classes=-1):
     stream = npu_state.current_stream((indices.device.index or 0))
 
     from ...._dtype import float32 as f32, int64 as i64
+    from .reduce import amax
 
     if num_classes < 0:
         max_val = amax(indices)
@@ -1821,6 +1818,7 @@ def nonzero(a, as_tuple=False):
         raise ValueError("NPU nonzero expects NPU tensors")
     if not aclnn.nonzero_symbols_ok():
         raise RuntimeError("aclnnNonzero symbols not available")
+    from .reduce import count_nonzero
 
     runtime = npu_runtime.get_runtime((a.device.index or 0))
     stream = npu_state.current_stream((a.device.index or 0))
@@ -2269,6 +2267,8 @@ def take_along_dim(a, indices, dim):
 
 
 def masked_select(a, mask):
+    from .comparison import ne
+    from .reduce import count_nonzero
     if mask.dtype != bool_dtype:
         mask = ne(mask, _scalar_to_npu_tensor(0, mask))
     if mask.shape != a.shape:
