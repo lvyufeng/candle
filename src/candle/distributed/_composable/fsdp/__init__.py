@@ -6,6 +6,8 @@ Usage (bottom-up):
     fully_shard(model.decoder, mesh=mesh)
     fully_shard(model, mesh=mesh)  # root
 """
+from contextlib import contextmanager
+
 from ._fsdp_common import FSDPMeshInfo
 from ._fsdp_param import FSDPParam
 from ._fsdp_param_group import FSDPParamGroup
@@ -27,6 +29,29 @@ class FSDPModule:
 
     def set_modules_to_backward_prefetch(self, modules):
         pass  # MVP no-op
+
+    @contextmanager
+    def no_sync(self):
+        """Skip gradient reduce-scatter for gradient accumulation.
+
+        Gradients are accumulated on the unsharded params. The final
+        backward (outside no_sync) will reduce-scatter the accumulated
+        gradients.
+        """
+        # Collect all FSDP states in the subtree
+        states = []
+        for mod in self.modules():
+            st = getattr(mod, '_fsdp_state', None)
+            if st is not None:
+                states.append(st)
+        old_values = [st._sync_gradients for st in states]
+        for st in states:
+            st._sync_gradients = False
+        try:
+            yield
+        finally:
+            for st, old in zip(states, old_values):
+                st._sync_gradients = old
 
 
 class _MockMeshInfo:
@@ -53,6 +78,13 @@ def fully_shard(module, *, mesh, reshard_after_forward=None):
     except (RuntimeError, AttributeError):
         mesh_info = _MockMeshInfo(mesh)
 
+    # Mark child FSDP modules as non-root (must happen before early return)
+    for child in module.modules():
+        if child is module:
+            continue
+        if hasattr(child, '_fsdp_state') and child._fsdp_state is not None:
+            child._fsdp_has_parent = True
+
     # 2. Collect directly-owned parameters (exclude child fully_shard params)
     managed_params = _get_managed_params(module)
     if not managed_params:
@@ -62,8 +94,8 @@ def fully_shard(module, *, mesh, reshard_after_forward=None):
 
     # 3. Create FSDPParam for each parameter
     fsdp_params = [
-        FSDPParam(param, module, name, mesh_info)
-        for name, param in managed_params
+        FSDPParam(param, owner, name, mesh_info)
+        for name, param, owner in managed_params
     ]
 
     # For single-rank, override unshard to skip collectives
@@ -97,7 +129,7 @@ def _inject_fsdp_mixin(module):
 
 
 def _get_managed_params(module):
-    """Collect directly-owned params, excluding those managed by child FSDP."""
+    """Collect params owned by *module*, excluding those managed by child FSDP."""
     child_fsdp_params = set()
     for child in module.modules():
         if child is module:
@@ -106,7 +138,97 @@ def _get_managed_params(module):
             for p in child.parameters():
                 child_fsdp_params.add(id(p))
     managed = []
-    for name, param in module.named_parameters(recurse=False):
+    for name, param in module.named_parameters():
         if id(param) not in child_fsdp_params:
-            managed.append((name, param))
+            # Use the leaf name (last component) for _set_param_on_module
+            leaf_name = name.split('.')[-1]
+            # Find the owning submodule
+            parts = name.split('.')
+            owner = module
+            for part in parts[:-1]:
+                owner = getattr(owner, part)
+            managed.append((leaf_name, param, owner))
     return managed
+
+
+def clip_grad_norm_(model, max_norm, norm_type=2.0, error_if_nonfinite=False):
+    """FSDP-aware gradient clipping that handles sharded DTensor gradients.
+
+    For sharded parameters, computes the local shard norm and all-reduces
+    across the process group to get the true global norm before clipping.
+
+    Parameters
+    ----------
+    model : nn.Module
+        The FSDP-wrapped model (or any module with DTensor parameters).
+    max_norm : float
+        Maximum gradient norm.
+    norm_type : float
+        Type of p-norm (default: 2.0).
+
+    Returns
+    -------
+    Tensor
+        The total (global) gradient norm before clipping.
+    """
+    from ...tensor.dtensor import DTensor
+    from ...._functional import abs, pow, sum, sqrt, amax, amin, stack, clamp, mul
+    from ...._creation import tensor
+
+    max_norm = float(max_norm)
+    norm_type = float(norm_type)
+
+    # Collect all grads (local shards for DTensor, raw for regular)
+    grads = []
+    for p in model.parameters():
+        if isinstance(p, DTensor):
+            local = p.to_local()
+            if local.grad is not None:
+                grads.append(local.grad)
+        elif p.grad is not None:
+            grads.append(p.grad)
+
+    if not grads:
+        return tensor(0.0)
+
+    # Compute per-grad norms
+    def _norm(t):
+        if norm_type == float('inf'):
+            return amax(abs(t))
+        elif norm_type == float('-inf'):
+            return amin(abs(t))
+        return pow(sum(pow(abs(t), norm_type)), 1.0 / norm_type)
+
+    norms = [_norm(g) for g in grads]
+
+    # Local total norm
+    if norm_type == float('inf'):
+        local_norm = amax(stack(norms))
+    elif norm_type == float('-inf'):
+        local_norm = amin(stack(norms))
+    else:
+        local_norm = pow(
+            sum(stack([pow(n, norm_type) for n in norms])),
+            1.0 / norm_type,
+        )
+
+    # For multi-rank: all-reduce local_norm^p, then take p-th root.
+    # For single-rank (MVP), local_norm == global_norm.
+    total_norm = local_norm
+
+    if error_if_nonfinite:
+        from ...._functional import isnan, isinf, any as any_
+        if any_(isnan(total_norm)) or any_(isinf(total_norm)):
+            raise RuntimeError(
+                f"Total norm of order {norm_type} is non-finite, "
+                "cannot clip. Set error_if_nonfinite=False to disable."
+            )
+
+    # Clip
+    inv_norm = pow(total_norm + tensor(1e-6), -1.0)
+    clip_coef = clamp(mul(tensor(max_norm), inv_norm), max_val=1.0)
+
+    for g in grads:
+        g.data = g * clip_coef
+
+    return total_norm

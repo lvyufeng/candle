@@ -13,6 +13,9 @@ class FSDPState:
         self._is_root = None
         self._pre_backward_hook_handles = []
         self._grad_count = 0
+        self._pending_grads = {}
+        self._used_fsdp_params = set()
+        self._sync_gradients = True  # False inside no_sync()
         self._total_managed_params = sum(
             1 for fp in param_group.fsdp_params
             if fp._sharded_param.requires_grad
@@ -58,6 +61,7 @@ class FSDPState:
     def _register_post_backward_hooks(self):
         self._grad_count = 0
         self._pending_grads = {}
+        self._used_fsdp_params = set()
         for fsdp_param in self.param_group.fsdp_params:
             unsharded = fsdp_param._unsharded_param
             if unsharded is not None and unsharded.requires_grad:
@@ -67,10 +71,8 @@ class FSDPState:
 
     def _make_post_backward_hook(self, fsdp_param):
         def hook(grad):
-            # Capture the gradient from the autograd engine and store it
-            # keyed by fsdp_param so post_backward can pass it to
-            # reduce_scatter_grad.
             self._pending_grads[id(fsdp_param)] = (fsdp_param, grad)
+            self._used_fsdp_params.add(id(fsdp_param))
             self._grad_count += 1
             if self._grad_count >= self._total_managed_params:
                 self._post_backward_all()
@@ -78,12 +80,50 @@ class FSDPState:
             return grad
         return hook
 
+    def finalize_backward(self):
+        """Flush unused parameters with zero gradients and reshard.
+
+        Called after backward completes when some parameters were unused
+        in the forward pass and their grad hooks never fired.  Handles
+        two cases:
+
+        1. Module was entered in forward but some params were unused --
+           ``_grad_count > 0`` but < ``_total_managed_params``.
+        2. Module was never entered in forward -- ``_used_fsdp_params``
+           was never initialised.
+        """
+        used = getattr(self, '_used_fsdp_params', set())
+        from ...._functional import zeros_like
+        for fsdp_param in self.param_group.fsdp_params:
+            if not fsdp_param._sharded_param.requires_grad:
+                continue
+            if id(fsdp_param) not in used:
+                local_shard = fsdp_param._sharded_param.to_local()
+                local_shard.grad = zeros_like(local_shard)
+        # Reduce-scatter any pending used-param grads and reshard
+        if self._pending_grads:
+            self._post_backward_all()
+        else:
+            # Nothing was unsharded; just ensure state is clean
+            self.param_group.reshard()
+        self._grad_count = 0
+
     def _post_backward_all(self):
         """Reduce-scatter captured gradients and reshard."""
-        for fsdp_param, grad in self._pending_grads.values():
-            fsdp_param.reduce_scatter_grad(grad)
+        if self._sync_gradients:
+            for fsdp_param, grad in self._pending_grads.values():
+                fsdp_param.reduce_scatter_grad(grad)
+        else:
+            # no_sync mode: accumulate grads on unsharded params directly
+            for fsdp_param, grad in self._pending_grads.values():
+                unsharded = fsdp_param._unsharded_param
+                if unsharded is not None and unsharded.grad is not None:
+                    unsharded.grad = unsharded.grad + grad
+                elif unsharded is not None:
+                    unsharded.grad = grad
         self._pending_grads.clear()
         self.param_group.reshard()
+
     def _lazy_init_root(self):
         self._is_root = not _has_parent_fsdp(self.module)
         # Root-level initialization: in a full FSDP tree, fully_shard()
@@ -92,14 +132,12 @@ class FSDPState:
 
 
 def _has_parent_fsdp(module):
-    # TODO: Implement proper parent detection for multi-level FSDP nesting.
-    # nn.Module has no parent reference, so detection requires either:
-    #   (a) walking the root module tree, or
-    #   (b) marking parent status during bottom-up fully_shard() calls.
-    # For the MVP, all modules are treated as root. This is correct when
-    # fully_shard() is called on a single module or on a flat set of modules,
-    # but will need fixing for nested FSDP wrapping (e.g. per-layer sharding).
-    return False
+    """Check if any ancestor module in the FSDP tree is also FSDP-managed.
+
+    Relies on the ``_fsdp_has_parent`` flag set during ``fully_shard()``
+    bottom-up traversal.
+    """
+    return getattr(module, '_fsdp_has_parent', False)
 
 
 def _extract_tensors_from_output(output):
