@@ -59,3 +59,24 @@ def test_saved_tensor_register_hooks_requires_callables():
         raw.register_hooks(lambda x: x)
     with pytest.raises(TypeError):
         raw.register_hooks(1, 1)
+
+
+def test_saved_tensor_none_and_release_errors():
+    class Fn(torch.autograd.Function):
+        @staticmethod
+        def forward(ctx, x):
+            ctx.save_for_backward(None)
+            return x
+
+        @staticmethod
+        def backward(ctx, g):
+            return g
+
+    x = torch.tensor([1.0], requires_grad=True)
+    y = Fn.apply(x)
+    raw = y.grad_fn._raw_saved_tensors[0]
+    with pytest.raises(RuntimeError, match="None is forbidden"):
+        raw.register_hooks(lambda x: x, lambda x: x)
+    y.sum().backward()
+    with pytest.raises(RuntimeError, match="after they have already been freed"):
+        _ = y.grad_fn.saved_tensors()
