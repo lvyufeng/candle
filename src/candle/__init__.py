@@ -122,6 +122,9 @@ from ._functional import unique, searchsorted, kthvalue, median
 # Category A: Export existing functions
 from ._functional import eq, ne, lt, le, gt, ge
 from ._functional import select, expand, masked_fill, unfold
+from ._functional import sum_to_size
+from ._functional import slice, slice_copy, slice_scatter, expand_copy
+from ._functional import as_strided_, as_strided_copy, as_strided_scatter
 from ._functional import scatter_, scatter_add_
 from ._functional import index_add_, index_copy_, index_fill_
 from ._functional import index_put, index_put_
@@ -167,6 +170,7 @@ from . import library
 from . import optim
 from . import nn
 from . import jit
+from . import fx
 from . import profiler
 from . import multiprocessing
 from . import linalg
@@ -584,4 +588,5 @@ __all__ = [
     "fft",
     "special",
     "testing",
+    "fx",
 ]

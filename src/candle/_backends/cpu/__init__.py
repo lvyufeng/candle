@@ -181,6 +181,7 @@ from .ops import (
     narrow,
     select,
     expand,
+    sum_to_size,
     masked_fill,
     masked_fill_,
     index_put_,
@@ -192,6 +193,13 @@ from .ops import (
     scatter_add_,
     masked_scatter_,
     unfold,
+    slice_op,
+    slice_copy,
+    slice_scatter,
+    expand_copy,
+    as_strided_,
+    as_strided_copy,
+    as_strided_scatter,
     embedding,
     var_,
     norm_,
@@ -443,6 +451,7 @@ registry.register("linalg_qr", "cpu", linalg_qr)
 registry.register("narrow", "cpu", narrow)
 registry.register("select", "cpu", select)
 registry.register("expand", "cpu", expand)
+registry.register("sum_to_size", "cpu", sum_to_size, meta=meta_infer.infer_sum_to_size)
 registry.register("masked_fill", "cpu", masked_fill, meta=meta_infer.infer_unary)
 registry.register("masked_fill_", "cpu", masked_fill_, meta=meta_infer.infer_unary)
 registry.register("index_put_", "cpu", index_put_)
@@ -454,6 +463,13 @@ registry.register("scatter_", "cpu", scatter_)
 registry.register("scatter_add_", "cpu", scatter_add_)
 registry.register("masked_scatter_", "cpu", masked_scatter_)
 registry.register("unfold", "cpu", unfold)
+registry.register("slice", "cpu", slice_op)
+registry.register("slice_copy", "cpu", slice_copy)
+registry.register("slice_scatter", "cpu", slice_scatter)
+registry.register("expand_copy", "cpu", expand_copy)
+registry.register("as_strided_", "cpu", as_strided_)
+registry.register("as_strided_copy", "cpu", as_strided_copy)
+registry.register("as_strided_scatter", "cpu", as_strided_scatter)
 
 registry.register("var", "cpu", var_, meta=meta_infer.infer_sum)
 registry.register("norm", "cpu", norm_, meta=meta_infer.infer_sum)

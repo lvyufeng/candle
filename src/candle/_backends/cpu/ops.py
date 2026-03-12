@@ -124,7 +124,11 @@ def add(a, b):
     a_np = _to_numpy(a)
     b_np = _to_numpy(b) if isinstance(b, Tensor) else b
     out_dtype = _binary_out_dtype(a, b)
-    out = np.add(a_np, b_np).astype(to_numpy_dtype(out_dtype), copy=False)
+    try:
+        out = np.add(a_np, b_np)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+    out = out.astype(to_numpy_dtype(out_dtype), copy=False)
     return _from_numpy(out, out_dtype, a.device)
 
 
@@ -1733,6 +1737,152 @@ def expand(a, sizes):
                 f"expand: size {sz} not compatible with dim size {src_shape[i]}"
             )
     return Tensor(a.storage(), tuple(out_shape), tuple(out_stride), a.offset)
+
+
+def sum_to_size(a, size):
+    if isinstance(size, list):
+        size = tuple(size)
+    elif isinstance(size, int):
+        size = (size,)
+
+    target = tuple(int(v) for v in size)
+    input_shape = tuple(a.shape)
+
+    if target == input_shape:
+        return a
+
+    if len(target) > len(input_shape) or any(dim <= 0 for dim in target):
+        raise RuntimeError(f"size {{{list(target)}}} is not expandable to size {{{list(input_shape)}}}.")
+
+    ndiff = len(input_shape) - len(target)
+    padded_target = (1,) * ndiff + target
+
+    for tgt, src in zip(padded_target, input_shape):
+        if tgt != 1 and tgt != src:
+            raise RuntimeError(f"size {{{list(target)}}} is not expandable to size {{{list(input_shape)}}}.")
+
+    arr = _to_numpy(a)
+    needs_reduce = ndiff > 0
+
+    if not needs_reduce:
+        for tgt, src in zip(target, input_shape):
+            if tgt == 1 and src != 1:
+                needs_reduce = True
+                break
+
+    if not needs_reduce:
+        return a
+
+    if a.dtype.is_floating_point or a.dtype.is_complex:
+        out_dtype = a.dtype
+        acc_dtype = None
+    else:
+        out_dtype = int64_dtype
+        acc_dtype = np.int64
+
+    if acc_dtype is not None:
+        arr = arr.astype(acc_dtype, copy=False)
+
+    while arr.ndim > len(target):
+        arr = arr.sum(axis=0)
+
+    for axis, (tgt, src) in enumerate(zip(target, arr.shape)):
+        if tgt == 1 and src != 1:
+            arr = arr.sum(axis=axis, keepdims=True)
+
+    arr = np.array(arr)
+    return _from_numpy(arr.astype(to_numpy_dtype(out_dtype), copy=False), out_dtype, a.device)
+
+
+def slice_op(a, dim, start=0, end=9223372036854775807, step=1):
+    if step <= 0:
+        raise RuntimeError("slice step must be positive")
+    key = [slice(None)] * a.dim()
+    key[int(dim)] = slice(int(start), int(end), int(step))
+    return getitem(a, tuple(key))
+
+
+def slice_copy(a, dim, start=0, end=9223372036854775807, step=1):
+    return contiguous(slice_op(a, dim, start, end, step))
+
+
+def slice_scatter(a, src, dim, start=0, end=9223372036854775807, step=1):
+    if step <= 0:
+        raise RuntimeError("slice step must be positive")
+    out = a.clone()
+    key = [slice(None)] * out.dim()
+    key[int(dim)] = slice(int(start), int(end), int(step))
+    setitem(out, tuple(key), src)
+    return out
+
+
+def expand_copy(a, sizes):
+    return contiguous(expand(a, sizes))
+
+
+def _compute_required_storage(size, stride, offset):
+    if any(s < 0 for s in stride):
+        raise RuntimeError(f"as_strided: Negative strides are not supported at the moment, got strides: {list(stride)}")
+    if offset < 0:
+        raise RuntimeError(f"Tensor: invalid storage offset {offset}")
+    if not size:
+        return offset
+    max_index = offset
+    for dim, st in zip(size, stride):
+        if dim <= 0:
+            continue
+        max_index += (dim - 1) * st
+    return max_index + 1
+
+
+def _validate_as_strided_storage(a, size, stride, offset):
+    required = _compute_required_storage(size, stride, offset)
+    storage_size = a.storage().size()
+    if required > storage_size:
+        itemsize = a.element_size()
+        raise RuntimeError(
+            f"setStorage: sizes {list(size)}, strides {list(stride)}, storage offset {offset}, "
+            f"and itemsize {itemsize} requiring a storage size of {required * itemsize} are out of bounds "
+            f"for storage of size {storage_size * itemsize}"
+        )
+
+
+def as_strided_(a, size, stride, storage_offset=None):
+    offset = a.offset if storage_offset is None else int(storage_offset)
+    size = tuple(int(s) for s in size)
+    stride = tuple(int(s) for s in stride)
+    _validate_as_strided_storage(a, size, stride, offset)
+    a.shape = tuple(size)
+    a.stride = _StrideTuple(stride)
+    a.offset = int(offset)
+    return a
+
+
+def as_strided_copy(a, size, stride, storage_offset=None):
+    offset = a.offset if storage_offset is None else int(storage_offset)
+    size = tuple(int(s) for s in size)
+    stride = tuple(int(s) for s in stride)
+    _validate_as_strided_storage(a, size, stride, offset)
+    view = a.as_strided(size, stride, offset)
+    return contiguous(view)
+
+
+def as_strided_scatter(a, src, size, stride, storage_offset=None):
+    offset = a.offset if storage_offset is None else int(storage_offset)
+    size = tuple(int(s) for s in size)
+    stride = tuple(int(s) for s in stride)
+    _validate_as_strided_storage(a, size, stride, offset)
+    out = a.clone()
+    view = out.as_strided(size, stride, offset)
+    if view.shape != src.shape:
+        raise RuntimeError(
+            f"expected src to have a size equal to the slice of self. src size = {list(src.shape)}, "
+            f"slice size = {list(view.shape)}"
+        )
+    view_arr = view._numpy_view()
+    src_arr = _to_numpy(src)
+    view_arr[...] = src_arr
+    return out
 
 
 def masked_fill(a, mask, value):
