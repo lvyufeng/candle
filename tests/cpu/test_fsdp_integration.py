@@ -140,3 +140,41 @@ def test_fsdp_optimizer_step():
     w2_diff = float((w2_after - w2_before).abs().sum())
     assert w1_diff > 0, "fc1.weight should have been updated"
     assert w2_diff > 0, "fc2.weight should have been updated"
+
+
+def test_fsdp_unused_parameter():
+    """Unused parameters should get zero gradients after finalize_backward."""
+    from candle.distributed._composable.fsdp import fully_shard
+
+    class ModelWithUnused(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.used = nn.Linear(8, 8)
+            self.unused = nn.Linear(8, 8)  # never used in forward
+        def forward(self, x):
+            return self.used(x)
+
+    model = ModelWithUnused()
+    mesh = MockMesh()
+    fully_shard(model.used, mesh=mesh)
+    fully_shard(model.unused, mesh=mesh)
+    fully_shard(model, mesh=mesh)
+
+    x = torch.randn(2, 8, requires_grad=True)
+    out = model(x)
+    loss = out.sum()
+    loss.backward()
+
+    # used params should have non-zero grads
+    used_local = model.used.weight.to_local() if isinstance(model.used.weight, DTensor) else model.used.weight
+    assert used_local.grad is not None, "used.weight should have grad"
+
+    # unused params: finalize_backward should flush them
+    model.unused._fsdp_state.finalize_backward()
+
+    unused_local = model.unused.weight.to_local() if isinstance(model.unused.weight, DTensor) else model.unused.weight
+    assert unused_local.grad is not None, "unused.weight should have zero grad after finalize"
+    assert float(unused_local.grad.abs().sum()) == 0.0, "unused.weight grad should be zero"
+
+    # Both modules should be resharded
+    assert isinstance(model.unused.weight, DTensor), "unused.weight should be resharded"
