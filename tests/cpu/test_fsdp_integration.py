@@ -210,3 +210,27 @@ def test_fsdp_no_sync():
     for name, param in model.named_parameters():
         local = param.to_local() if isinstance(param, DTensor) else param
         assert local.grad is not None, f"No gradient for {name} after sync step"
+
+
+def test_fsdp_clip_grad_norm():
+    """FSDP-aware clip_grad_norm_ should clip sharded gradients correctly."""
+    from candle.distributed._composable.fsdp import fully_shard, clip_grad_norm_
+
+    model = SimpleMLP(8)
+    mesh = MockMesh()
+    fully_shard(model.fc1, mesh=mesh)
+    fully_shard(model.fc2, mesh=mesh)
+    fully_shard(model, mesh=mesh)
+
+    x = torch.randn(4, 8, requires_grad=True)
+    out = model(x)
+    loss = out.sum()
+    loss.backward()
+
+    # Compute norm before clipping
+    total_norm = clip_grad_norm_(model, max_norm=0.1)
+    assert float(total_norm) > 0, "Total norm should be positive"
+
+    # After clipping, recompute norm — should be <= max_norm + epsilon
+    norm_after = clip_grad_norm_(model, max_norm=1e10)  # large max_norm = no-op
+    assert float(norm_after) <= 0.1 + 1e-4, f"Clipped norm {float(norm_after)} exceeds max_norm 0.1"
