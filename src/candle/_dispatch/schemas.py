@@ -378,6 +378,13 @@ def register_schemas():
     registry.register_schema("select", "select(Tensor(a) input, int dim, int index) -> Tensor(a)")
     registry.register_schema("expand", "expand(Tensor(a) input, int[] sizes) -> Tensor(a)")
     registry.register_schema("unfold", "unfold(Tensor(a) input, int dimension, int size, int step) -> Tensor(a)")
+    registry.register_schema("slice", "slice(Tensor(a) input, int dim, int start=0, int end=9223372036854775807, int step=1) -> Tensor(a)")
+    registry.register_schema("slice_copy", "slice_copy(Tensor input, int dim, int start=0, int end=9223372036854775807, int step=1) -> Tensor")
+    registry.register_schema("slice_scatter", "slice_scatter(Tensor input, Tensor src, int dim, int start=0, int end=9223372036854775807, int step=1) -> Tensor")
+    registry.register_schema("expand_copy", "expand_copy(Tensor input, int[] sizes) -> Tensor")
+    registry.register_schema("as_strided_", "as_strided_(Tensor(a!) self, int[] size, int[] stride, int? storage_offset=None) -> Tensor")
+    registry.register_schema("as_strided_copy", "as_strided_copy(Tensor input, int[] size, int[] stride, int? storage_offset=None) -> Tensor")
+    registry.register_schema("as_strided_scatter", "as_strided_scatter(Tensor input, Tensor src, int[] size, int[] stride, int? storage_offset=None) -> Tensor")
 
     # Masked ops
     registry.register_schema("masked_fill", "masked_fill(Tensor input, Tensor mask, Scalar value) -> Tensor")
