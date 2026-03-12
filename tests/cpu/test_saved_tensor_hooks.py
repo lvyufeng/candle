@@ -80,8 +80,6 @@ def test_saved_tensor_none_and_release_errors():
     y.sum().backward()
     with pytest.raises(RuntimeError, match="after they have already been freed"):
         _ = y.grad_fn.saved_tensors()
-
-
 def test_saved_tensor_pack_hook_inplace_modification_raises():
     def pack(x):
         x += 1
