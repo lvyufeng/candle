@@ -69,3 +69,32 @@ def test_calculate_shape_util_basic():
     out_shape, grad_shape = candle.autograd._calculate_shape(out, grad, False)
     assert out_shape == (10, 5)
     assert grad_shape == (5, 10)
+
+
+def test_forward_ad_mul_jvp():
+    x = candle.rand(2)
+    y = candle.rand(2)
+    with forward_ad.dual_level():
+        tx = candle.ones_like(x)
+        ty = candle.full_like(y, 2.0)
+        x = forward_ad.make_dual(x, tx)
+        y = forward_ad.make_dual(y, ty)
+        z = candle.mul(x, y)
+        _, tz = forward_ad.unpack_dual(z)
+        assert tz is not None
+        expected = tx * y + x * ty
+        tz_arr = tz._numpy_view().ravel()
+        exp_arr = expected._numpy_view().ravel()
+        assert tz_arr == pytest.approx(exp_arr)
+
+
+def test_forward_ad_sum_jvp():
+    x = candle.rand(2, 3)
+    with forward_ad.dual_level():
+        tx = candle.ones_like(x)
+        x = forward_ad.make_dual(x, tx)
+        z = candle.sum(x)
+        _, tz = forward_ad.unpack_dual(z)
+        assert tz is not None
+        assert tz.shape == candle.sum(tx).shape
+        assert float(tz) == pytest.approx(float(candle.sum(tx)))

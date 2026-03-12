@@ -438,12 +438,28 @@ def dispatch_with_keyset(name, keyset, dispatch_device, *args, **kwargs):
 
         level = forward_ad._current_level()
         if level >= 0:
-            tangents = [getattr(t, "_fw_get", lambda _: None)(level) for t in tensors]
+            tangents = [forward_ad.get_tangent(t, level) for t in tensors]
             if any(t is not None for t in tangents):
                 jvp = forward_ad.get_jvp(alias_name)
                 if jvp is None:
                     raise RuntimeError(f"no forward-mode rule registered for op {alias_name}")
-                out_tangent = jvp(*args, **impl_kwargs, _tangents=tangents)
+                inner_keyset = keyset.without({DispatchKey.Autograd, DispatchKey.AutogradCPU, DispatchKey.AutogradCUDA, DispatchKey.AutogradNPU, DispatchKey.AutogradMeta, DispatchKey.AutogradXPU, DispatchKey.AutogradOther})
+                jvp_key = key
+                if jvp_key in inner_keyset:
+                    inner_keyset = inner_keyset.without(jvp_key)
+
+                def _eval_jvp():
+                    _push_dispatch_context(inner_keyset, jvp_key)
+                    try:
+                        return jvp(*args, **impl_kwargs, _tangents=tangents)
+                    finally:
+                        _pop_dispatch_context()
+
+                try:
+                    with forward_ad.temporarily_disable(level):
+                        out_tangent = _eval_jvp()
+                except Exception:
+                    out_tangent = _eval_jvp()
                 if isinstance(result, (tuple, list)):
                     for out, t in zip(result, out_tangent):
                         if hasattr(out, "_fw_set"):

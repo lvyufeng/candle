@@ -28,6 +28,44 @@ def _current_level():
     return stack[-1]
 
 
+def _disabled_levels():
+    disabled = getattr(_STATE, "disabled", None)
+    if disabled is None:
+        disabled = set()
+        _STATE.disabled = disabled
+    return disabled
+
+
+class temporarily_disable:
+    def __init__(self, level):
+        self.level = level
+
+    def __enter__(self):
+        _disabled_levels().add(self.level)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        _disabled_levels().discard(self.level)
+        return False
+
+
+def is_level_disabled(level):
+    return level in _disabled_levels()
+
+
+def get_tangent(tensor, level):
+    if is_level_disabled(level):
+        return None
+    return tensor._fw_get(level)
+
+
+def _tangent_or_zero(tangent, like):
+    if tangent is None:
+        from .._functional import zeros_like
+        return zeros_like(like)
+    return tangent
+
+
 def register_jvp(op_name, fn):
     _JVP_RULES[op_name] = fn
 
@@ -104,7 +142,7 @@ def unpack_dual(tensor, *, level=None):
         level = _current_level()
     if level < 0:
         return UnpackedDualTensor(tensor, None)
-    return UnpackedDualTensor(tensor, tensor._fw_get(level))
+    return UnpackedDualTensor(tensor, get_tangent(tensor, level))
 
 
 __all__ = [
@@ -116,7 +154,28 @@ __all__ = [
     "dual_level",
     "register_jvp",
     "get_jvp",
+    "temporarily_disable",
+    "get_tangent",
 ]
 
 
-register_jvp("add", lambda x, y, *, _tangents: _tangents[0] + _tangents[1])
+register_jvp(
+    "add",
+    lambda x, y, *, _tangents: _tangent_or_zero(_tangents[0], x)
+    + _tangent_or_zero(_tangents[1], y),
+)
+register_jvp(
+    "mul",
+    lambda x, y, *, _tangents: _tangent_or_zero(_tangents[0], x) * y
+    + x * _tangent_or_zero(_tangents[1], y),
+)
+def _sum_jvp(x, *, _tangents, **kwargs):
+    tangent = _tangent_or_zero(_tangents[0], x)
+    dim = kwargs.get("dim")
+    keepdim = kwargs.get("keepdim", False)
+    if dim is None:
+        return tangent.sum()
+    return tangent.sum(dim=dim, keepdim=keepdim)
+
+
+register_jvp("sum", _sum_jvp)
