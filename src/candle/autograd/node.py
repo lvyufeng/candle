@@ -27,14 +27,19 @@ _RAW_SAVED_FIELD_PREFIX = "_raw_saved_"
 class SavedTensor:
     def __init__(self, tensor):
         self._tensor_ref = tensor
-        self._saved_version = tensor._version_counter.value
+        self._saved_version = None if tensor is None else tensor._version_counter.value
         self._released = False
-        self._hooks = current_saved_tensors_hooks()
-        if self._hooks is None:
+        self._hooks = None
+        self._global_hooks = current_saved_tensors_hooks()
+        hooks = self._global_hooks
+        if hooks is None:
             self._packed = None
         else:
-            pack, _ = self._hooks
-            self._packed = pack(tensor)
+            pack, _ = hooks
+            if tensor is None:
+                self._packed = None
+            else:
+                self._packed = pack(tensor)
 
     def register_hooks(self, *args):
         if len(args) != 2:
@@ -42,10 +47,23 @@ class SavedTensor:
         pack, unpack = args
         if not callable(pack) or not callable(unpack):
             raise TypeError("incompatible function arguments")
+        if self._released:
+            raise RuntimeError(
+                "Trying to backward through the graph a second time (or directly access saved tensors after they have already been freed). "
+                "Saved intermediate values of the graph are freed when you call .backward() or autograd.grad(). "
+                "Specify retain_graph=True if you need to backward through the graph a second time or if you need to access saved tensors after calling backward."
+            )
         if self._hooks is not None:
             raise RuntimeError("SavedTensor hooks have already been set")
+        if self._tensor_ref is None:
+            raise RuntimeError("None is forbidden")
+        before_version = self._tensor_ref._version_counter.value
+        packed = pack(self._tensor_ref)
+        after_version = self._tensor_ref._version_counter.value
+        if before_version != after_version:
+            raise RuntimeError("A saved tensor pack hook is modifying its input in place.")
         self._hooks = (pack, unpack)
-        self._packed = pack(self._tensor_ref)
+        self._packed = packed
 
     def release(self):
         self._released = True
@@ -57,6 +75,8 @@ class SavedTensor:
                 "Saved intermediate values of the graph are freed when you call .backward() or autograd.grad(). "
                 "Specify retain_graph=True if you need to backward through the graph a second time or if you need to access saved tensors after calling backward."
             )
+        if self._tensor_ref is None:
+            return None
         if self._tensor_ref._version_counter.value != self._saved_version:
             shape = "x".join(str(d) for d in getattr(self._tensor_ref, "shape", ()))
             tensor_type = "torch.Tensor"
@@ -67,38 +87,69 @@ class SavedTensor:
                 f"expected version {self._saved_version} instead. Hint: enable anomaly detection to find the operation that failed to compute its gradient, "
                 "with torch.autograd.set_detect_anomaly(True)."
             )
-        if self._hooks is None:
+        hooks = self._hooks or self._global_hooks
+        if hooks is None:
             return self._tensor_ref
-        _, unpack = self._hooks
-        return unpack(self._packed)
+        _, unpack = hooks
+        result = unpack(self._packed)
+        from .._tensor import Tensor
+        if not isinstance(result, Tensor):
+            raise TypeError("Output of saved tensor unpack_hook expected to be a Tensor")
+        return result
 
 
 class Node:
     def __init__(self, backward, inputs):
         self.backward = backward
         self.inputs = inputs
-        self._saved_tensors = []
+        self._saved_tensors_list = []
         self._saved_fields = {}
 
     def save_for_backward(self, *tensors):
         saved = []
         for t in tensors:
-            if hasattr(t, "_version_counter"):
+            if t is None:
+                saved.append(SavedTensor(None))
+            elif hasattr(t, "_version_counter"):
                 saved.append(SavedTensor(t))
             else:
                 saved.append(_SavedValue(t))
-        self._saved_tensors = saved
+        self._saved_tensors_list = saved
 
     def saved_tensors(self):
-        return tuple(saved.materialize() for saved in self._saved_tensors)
+        if any(getattr(saved, "_released", False) for saved in self._saved_tensors_list):
+            raise RuntimeError(
+                "Trying to backward through the graph a second time (or directly access saved tensors after they have already been freed). "
+                "Saved intermediate values of the graph are freed when you call .backward() or autograd.grad(). "
+                "Specify retain_graph=True if you need to backward through the graph a second time or if you need to access saved tensors after calling backward."
+            )
+        return tuple(saved.materialize() for saved in self._saved_tensors_list)
 
     def release_saved_tensors(self):
-        for saved in self._saved_tensors:
+        for saved in self._saved_tensors_list:
             saved.release()
 
     def __getattr__(self, name):
+        if name == "_raw_saved_tensors":
+            return tuple(self._saved_tensors_list)
+        if name == "_saved_tensors":
+            saved_tensors = self._saved_tensors_list
+            if any(getattr(saved, "_released", False) for saved in saved_tensors):
+                raise RuntimeError(
+                    "Trying to backward through the graph a second time (or directly access saved tensors after they have already been freed). "
+                    "Saved intermediate values of the graph are freed when you call .backward() or autograd.grad(). "
+                    "Specify retain_graph=True if you need to backward through the graph a second time or if you need to access saved tensors after calling backward."
+                )
+            return tuple(saved.materialize() for saved in saved_tensors)
         if name.startswith(_RAW_SAVED_FIELD_PREFIX):
             key = name[len(_RAW_SAVED_FIELD_PREFIX):]
             if key in self._saved_fields:
                 return self._saved_fields[key]
+        if name.startswith("_saved_"):
+            key = name[len("_saved_"):]
+            if key in self._saved_fields:
+                saved = self._saved_fields[key]
+                if isinstance(saved, (list, tuple)):
+                    return tuple(item.materialize() for item in saved)
+                return saved.materialize()
         raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")

@@ -90,6 +90,10 @@ class _GraphTask:
                     self._accumulate_node_grad(t.grad_fn, g)
             if not self.retain_graph:
                 node.release_saved_tensors()
+        # Ensure any remaining nodes release saved tensors when graph is not retained
+        if not self.retain_graph:
+            for node in self.dependencies:
+                node.release_saved_tensors()
 
 
 def _apply_hooks(tensor, grad):

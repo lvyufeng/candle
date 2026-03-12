@@ -20,6 +20,12 @@ class FunctionCtx:
 
     @property
     def saved_tensors(self):
+        if any(getattr(saved, "_released", False) for saved in self._saved_tensors):
+            raise RuntimeError(
+                "Trying to backward through the graph a second time (or directly access saved tensors after they have already been freed). "
+                "Saved intermediate values of the graph are freed when you call .backward() or autograd.grad(). "
+                "Specify retain_graph=True if you need to backward through the graph a second time or if you need to access saved tensors after calling backward."
+            )
         return tuple(saved.materialize() for saved in self._saved_tensors)
 
     @property
@@ -115,7 +121,7 @@ class Function(metaclass=FunctionMeta):
         # Wire saved tensors through Node
         if ctx._to_save is not None:
             node.save_for_backward(*ctx._to_save)
-            ctx._saved_tensors = node._saved_tensors
+            ctx._saved_tensors = node._saved_tensors_list
 
         # Set grad_fn on outputs
         non_diff = ctx._non_differentiable
@@ -137,3 +143,14 @@ class Function(metaclass=FunctionMeta):
                         o.requires_grad = False
 
         return output
+
+
+class InplaceFunction(Function):
+    pass
+
+
+def once_differentiable(fn):
+    def wrapper(*args, **kwargs):
+        return fn(*args, **kwargs)
+
+    return wrapper
