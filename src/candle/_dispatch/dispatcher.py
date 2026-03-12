@@ -7,6 +7,7 @@ from .functionalize import functionalize_op, is_functionalize_enabled, should_fu
 import threading
 
 from ..autograd.grad_mode import is_grad_enabled
+from ..autograd import forward_ad
 from ..amp.state import is_autocast_enabled
 from ..amp.policy import apply_autocast_policy
 from ..profiler.profiler import is_profiler_enabled, dispatch_op_enter, dispatch_op_exit
@@ -434,6 +435,23 @@ def dispatch_with_keyset(name, keyset, dispatch_device, *args, **kwargs):
             if token is not None:
                 dispatch_op_exit(token)
         _bump_versions(entry.schema_obj, args, impl_kwargs)
+
+        level = forward_ad._current_level()
+        if level >= 0:
+            tangents = [getattr(t, "_fw_get", lambda _: None)(level) for t in tensors]
+            if any(t is not None for t in tangents):
+                jvp = forward_ad.get_jvp(alias_name)
+                if jvp is None:
+                    raise RuntimeError(f"no forward-mode rule registered for op {alias_name}")
+                out_tangent = jvp(*args, **impl_kwargs, _tangents=tangents)
+                if isinstance(result, (tuple, list)):
+                    for out, t in zip(result, out_tangent):
+                        if hasattr(out, "_fw_set"):
+                            out._fw_set(level, t)
+                else:
+                    if hasattr(result, "_fw_set"):
+                        result._fw_set(level, out_tangent)
+
         return result
 
     # __torch_dispatch__ subclass protocol: fires after autograd, before backend

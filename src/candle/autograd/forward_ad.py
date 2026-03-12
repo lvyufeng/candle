@@ -10,6 +10,7 @@ class UnpackedDualTensor(_UnpackedDualTensor):
 
 
 _STATE = threading.local()
+_JVP_RULES = {}
 
 
 def _level_stack():
@@ -25,6 +26,14 @@ def _current_level():
     if not stack:
         return -1
     return stack[-1]
+
+
+def register_jvp(op_name, fn):
+    _JVP_RULES[op_name] = fn
+
+
+def get_jvp(op_name):
+    return _JVP_RULES.get(op_name)
 
 
 def enter_dual_level():
@@ -105,4 +114,9 @@ __all__ = [
     "make_dual",
     "unpack_dual",
     "dual_level",
+    "register_jvp",
+    "get_jvp",
 ]
+
+
+register_jvp("add", lambda x, y, *, _tangents: _tangents[0] + _tangents[1])

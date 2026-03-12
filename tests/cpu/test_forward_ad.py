@@ -39,3 +39,17 @@ def test_forward_ad_exit_requires_lifo():
         with forward_ad.dual_level() as lvl2:
             with pytest.raises(RuntimeError):
                 forward_ad.exit_dual_level(level=lvl1)
+
+
+def test_forward_ad_add_jvp():
+    x = candle.rand(2)
+    y = candle.rand(2)
+    with forward_ad.dual_level():
+        tx = candle.ones_like(x)
+        ty = candle.full_like(y, 2.0)
+        x = forward_ad.make_dual(x, tx)
+        y = forward_ad.make_dual(y, ty)
+        z = candle.add(x, y)
+        _, tz = forward_ad.unpack_dual(z)
+        assert tz is not None
+        assert (tz == tx + ty).all()
