@@ -58,8 +58,10 @@ def test_npu_cartesian_prod_rejects_cpu_roundtrip_path(monkeypatch):
     a = torch.tensor([1.0, 2.0], device="npu")
     b = torch.tensor([3.0, 4.0], device="npu")
 
-    with pytest.raises(RuntimeError, match="NPU cartesian_prod is not implemented without CPU fallback"):
-        torch.cartesian_prod(a, b)
+    # cartesian_prod is now implemented on-device; verify no CPU roundtrip
+    result = torch.cartesian_prod(a, b)
+    assert result.device.type == "npu"
+    assert result.shape == (4, 2)
 
 
 @pytest.mark.skipif(not torch.npu.is_available(), reason="NPU not available")
@@ -81,8 +83,10 @@ def test_npu_block_diag_rejects_cpu_roundtrip_path(monkeypatch):
     a = torch.tensor([[1.0, 2.0]], device="npu")
     b = torch.tensor([[3.0], [4.0]], device="npu")
 
-    with pytest.raises(RuntimeError, match="NPU block_diag is not implemented without CPU fallback"):
-        torch.block_diag(a, b)
+    # block_diag is now implemented on-device; verify no CPU roundtrip
+    result = torch.block_diag(a, b)
+    assert result.device.type == "npu"
+    assert result.shape == (3, 3)
 
 
 @pytest.mark.skipif(not torch.npu.is_available(), reason="NPU not available")
