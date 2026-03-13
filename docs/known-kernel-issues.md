@@ -11,10 +11,20 @@ This document tracks native kernel bugs and their on-device composite workaround
 
 | Op | Backend | Error Description | Composite Workaround | Platform Version | Status |
 |----|---------|-------------------|----------------------|------------------|--------|
-| `cartesian_prod` | npu | Current implementation required `Tensor.to("cpu")` to enumerate values, which violates the no-CPU-fallback rule. | No workaround yet; fail explicitly until a true on-device composition is implemented. | CANN 8.3 / Candle `0.1.x` | open |
-| `block_diag` | npu | Current implementation required `Tensor.to("cpu")` to materialize block contents, which violates the no-CPU-fallback rule. | No workaround yet; fail explicitly until a true on-device composition is implemented. | CANN 8.3 / Candle `0.1.x` | open |
+| `cartesian_prod` | npu | Current implementation required `Tensor.to("cpu")` to enumerate values, which violates the no-CPU-fallback rule. | Implemented via reshape+repeat+tile+stack composite (all on-device). | CANN 8.3 / Candle `0.1.x` | resolved |
+| `block_diag` | npu | Current implementation required `Tensor.to("cpu")` to materialize block contents, which violates the no-CPU-fallback rule. | Implemented via zeros_create+memcpy_d2d composite (all on-device). | CANN 8.3 / Candle `0.1.x` | resolved |
+| `contiguous` (stride=0 from expand) | npu | NPU `contiguous` does not correctly materialize expanded tensors with stride=0 dimensions. Copies raw storage bytes instead of respecting strides, producing garbage. | Avoid expand+contiguous; use reshape+repeat instead. | CANN 8.5 / Ascend910B3 | open |
 | `repeat_interleave` (tensor `repeats`) | npu | Current implementation required reading NPU `repeats` values on CPU to build gather indices, which violates the no-CPU-fallback rule. | Use integer `repeats` only for now; fail explicitly for tensor-valued repeats until an on-device index builder exists. | CANN 8.3 / Candle `0.1.x` | open |
 | `baddbmm` (tensor `alpha`/`beta`) | npu | Current implementation required reading NPU tensor scalars for `alpha`/`beta` on CPU, which violates the no-CPU-fallback rule. | Use Python numeric `alpha`/`beta` only for now; fail explicitly for tensor-valued scalars until an on-device scalar path is implemented. | CANN 8.3 / Candle `0.1.x` | open |
+| `std` (dim=None) | npu (910B) | `aclnnVar` all-reduce (no dim) returns error 161002 on 910B series. Per-dim reduction works fine. | Flatten to `(1, N)` then `var(dim=1)` + `sqrt`. Gate: `_use_soc_fallback("std")`. | CANN 8.5 / Ascend910B | open |
+| `nansum` | npu (910B) | `aclnnReduceNansum` returns error 161002 on 910B series. | Replace NaN with 0 via `where(isnan(x), 0, x)` then `sum`. Gate: `_use_soc_fallback("nansum")`. | CANN 8.5 / Ascend910B | open |
+| `instance_norm` | npu (910B) | `aclnnInstanceNorm` returns error 161002 on 910B series. | Manual composite: per-instance mean/var → normalize → affine. Gate: `_use_soc_fallback("instance_norm")`. | CANN 8.5 / Ascend910B | open |
+| `adaptive_avg_pool2d` | npu (910B) | `cubeMathType=1` state from matmul contaminates subsequent `aclnnAdaptiveAvgPool2d`, producing wrong results. | Manual composite: reshape + mean over spatial blocks. Gate: `_use_soc_fallback("adaptive_avg_pool2d")`. | CANN 8.5 / Ascend910B | open |
+| `avg_pool2d` | npu (910B) | `aclnnAvgPool2d` returns error 161002 on 910B series. | Depthwise conv2d with uniform `1/(kH*kW)` weights. Gate: `_use_soc_fallback("avg_pool2d")`. | CANN 8.5 / Ascend910B | open |
+| `upsample_nearest1d` | npu (910B) | `aclnnUpsampleNearest1d` produces incorrect results on 910B series. | Manual repeat-based upsampling on device. Gate: `_use_soc_fallback("upsample_nearest1d")`. | CANN 8.5 / Ascend910B | open |
+| `einsum` | npu (910B) | `aclnnEinsum` returns error 161002 on 910B series. | Parse equation string, decompose into transpose/reshape/matmul/sum. Gate: `_use_soc_fallback("einsum")`. | CANN 8.5 / Ascend910B | open |
+| `isinf` | npu (910B) | `aclnnIsInf` returns error 161001 (unavailable) on 910B series. | Composite: `!isfinite(x) & isfinite(1/x)`. Gate: `_use_soc_fallback("isinf")`. | CANN 8.5 / Ascend910B | open |
+| `im2col` | npu (910B) | `aclnnIm2col` returns error 561103 on 910B series. | Manual sliding-window extraction via slice + reshape + cat. Gate: `_use_soc_fallback("im2col")`. | CANN 8.5 / Ascend910B | open |
 
 <!--
 Entry template:

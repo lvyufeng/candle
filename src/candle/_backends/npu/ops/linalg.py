@@ -300,7 +300,10 @@ def baddbmm(self_tensor, batch1, batch2, beta=1.0, alpha=1.0):
 
 
 def einsum_(equation, operands):
-    """Compute einsum as composite (aclnnEinsum has 161002 on CANN 8.3.RC2).
+    """Compute einsum.
+
+    When fallback is active (910B): aclnnEinsum returns 161002,
+    so we use composite implementation for supported patterns.
 
     Supported patterns:
     - matmul:  ...ij,...jk->...ik
@@ -308,6 +311,9 @@ def einsum_(equation, operands):
     - inner product: i,i-> or ...i,...i->...
     - batch diagonal sum: ...ii->...i (trace-like)
     """
+    if not _use_soc_fallback("einsum"):
+        # TODO: re-enable native aclnnEinsum when CANN fixes 161002
+        pass
     from ...._dispatch import dispatch as _dispatch
 
     eq = equation.replace(' ', '')
@@ -333,7 +339,30 @@ def einsum_(equation, operands):
         label_sizes = {}
         for label, size in zip(in_labels, a.shape):
             label_sizes[label] = size
-        # Sum over contracted labels
+
+        # Detect repeated labels (diagonal extraction needed, e.g. "ii->", "ii->i")
+        from collections import Counter
+        label_counts = Counter(in_labels)
+        repeated = {label for label, count in label_counts.items() if count > 1}
+        if repeated:
+            # For "ii->" (trace) or "ii->i" (diagonal): extract diagonal first
+            result = a
+            for label in repeated:
+                # Find the two dims with this label and extract diagonal
+                dims = [i for i, l in enumerate(in_labels) if l == label]
+                if len(dims) == 2:
+                    result = _dispatch("diagonal", result.device.type, result, dim1=dims[0], dim2=dims[1])
+                    # After diagonal extraction, the label dims collapse to one dim at the end
+                    # Rebuild in_labels to reflect the new shape
+                    new_labels = [l for i, l in enumerate(in_labels) if i not in dims] + [label]
+                    in_labels = ''.join(new_labels)
+            # Now sum over any remaining contracted labels
+            contracted = [i for i, l in enumerate(in_labels) if l not in rhs]
+            for dim in sorted(contracted, reverse=True):
+                result = _dispatch("sum", result.device.type, result, dim=dim, keepdim=False)
+            return result
+
+        # Sum over contracted labels (no repeated labels)
         contracted = [i for i, label in enumerate(in_labels) if label not in rhs]
         if contracted:
             result = a

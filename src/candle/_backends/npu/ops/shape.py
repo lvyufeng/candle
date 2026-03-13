@@ -1582,14 +1582,38 @@ def cartesian_prod(*tensors):
         if t.dtype != first.dtype:
             raise RuntimeError("meshgrid expects all tensors to have the same dtype")
 
-    raise RuntimeError("NPU cartesian_prod is not implemented without CPU fallback")
+    # Composite: for each tensor i, repeat-interleave by product of later sizes,
+    # then tile by product of earlier sizes.
+    n = len(tensors)
+    sizes = [int(t.shape[0]) for t in tensors]
+    total = 1
+    for s in sizes:
+        total *= s
+
+    columns = []
+    for i, t in enumerate(tensors):
+        inner = 1
+        for j in range(i + 1, n):
+            inner *= sizes[j]
+        outer = 1
+        for j in range(0, i):
+            outer *= sizes[j]
+        # repeat each element inner times: reshape to (s,1) then repeat (1,inner) then flatten
+        col = reshape(t, (sizes[i], 1))
+        col = repeat(col, (1, inner))
+        col = reshape(col, (sizes[i] * inner,))
+        # tile the pattern outer times
+        if outer > 1:
+            col = tile(col, (outer,))
+        columns.append(col)
+    return stack(columns, dim=1)
 
 
 def block_diag(*tensors):
     tensors = _normalize_tensor_sequence_args(tensors)
 
     if len(tensors) == 0:
-        raise RuntimeError("NPU block_diag is not implemented without CPU fallback")
+        raise RuntimeError("block_diag expects at least one tensor")
 
     first = tensors[0]
     for t in tensors:
@@ -1600,7 +1624,35 @@ def block_diag(*tensors):
         if t.dtype != first.dtype:
             raise ValueError("block_diag expects tensors with the same dtype")
 
-    raise RuntimeError("NPU block_diag is not implemented without CPU fallback")
+    from ..creation import zeros_create
+
+    total_rows = sum(int(t.shape[0]) for t in tensors)
+    total_cols = sum(int(t.shape[1]) for t in tensors)
+    out = zeros_create((total_rows, total_cols), dtype=first.dtype, device=first.device)
+
+    itemsize = _dtype_itemsize(first.dtype)
+    dst_base = int(_unwrap_storage(out).data_ptr())
+    out_stride0 = int(out.stride[0])
+    runtime = npu_runtime.get_runtime((first.device.index or 0))
+
+    row_off = 0
+    col_off = 0
+    for t in tensors:
+        src = t if t.is_contiguous() else contiguous(t)
+        r, c = int(src.shape[0]), int(src.shape[1])
+        src_base = int(_unwrap_storage(src).data_ptr())
+        for ri in range(r):
+            dst_offset = ((row_off + ri) * out_stride0 + col_off) * itemsize
+            src_offset = ri * c * itemsize
+            npu_runtime.memcpy_d2d(
+                dst_base + dst_offset,
+                c * itemsize,
+                src_base + src_offset,
+                runtime=runtime,
+            )
+        row_off += r
+        col_off += c
+    return out
 
 
 def broadcast_to_op(a, shape):
@@ -1976,6 +2028,7 @@ def pad_sequence(seqs, batch_first=False, padding_value=0.0, padding_side="right
 
     from ..creation import full_create
 
+    runtime = npu_runtime.get_runtime((first.device.index or 0))
     max_len = max(int(t.shape[0]) for t in seqs)
     batch = len(seqs)
     trailing = tuple(first.shape[1:])

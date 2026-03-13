@@ -798,15 +798,20 @@ def var_(a, dim=None, unbiased=True, keepdim=False):
 
 
 def std_(a, dim=None, unbiased=True, keepdim=False):
-    """Compute std as sqrt(var). aclnnStd/aclnnVar all-reduce fails on 910B."""
-    if dim is None:
-        # aclnnVar fails with 161002 for all-reduce; reshape to (1, N) and var(dim=1)
+    """Compute std as sqrt(var).
+
+    When fallback is active (910B): aclnnVar all-reduce fails with 161002,
+    so we reshape to (1, N) and var(dim=1) to avoid the all-reduce path.
+    """
+    if dim is None and _use_soc_fallback("std"):
+        # Workaround: reshape to (1, N) and var(dim=1) to avoid all-reduce
         n = 1
         for s in a.shape:
             n *= s
         flat = a.contiguous().view((1, n))
         v = var_(flat, dim=1, unbiased=unbiased, keepdim=False)
         return _unary_op(v, aclnn.sqrt, "sqrt")
+    # TODO: re-enable native aclnnStd when CANN fixes 161002 for all-reduce
     v = var_(a, dim=dim, unbiased=unbiased, keepdim=keepdim)
     return _unary_op(v, aclnn.sqrt, "sqrt")
 
@@ -1227,10 +1232,19 @@ def renorm_op(a, p, dim, maxnorm):
 
 
 def nansum(a, dim=None, keepdim=False):
-    """Sum ignoring NaN values. Composite: where(isnan, 0, x) then sum.
+    """Sum ignoring NaN values.
 
-    Note: aclnnReduceNansum returns 161002 on CANN 8.3.RC2 (Ascend910B).
+    When fallback is active (910B): aclnnReduceNansum returns 161002,
+    so we use composite: where(isnan, 0, x) then sum.
     """
+    if _use_soc_fallback("nansum"):
+        from . import where
+        from .math import isnan
+        zero = _scalar_to_npu_tensor(0.0, a)
+        nan_mask = isnan(a)
+        clean = where(nan_mask, zero, a)
+        return sum_(clean, dim=dim, keepdim=keepdim)
+    # TODO: re-enable native aclnnReduceNansum when CANN fixes 161002
     from . import where
     from .math import isnan
     zero = _scalar_to_npu_tensor(0.0, a)

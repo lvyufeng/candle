@@ -14,7 +14,17 @@ from . import runtime as npu_runtime
 
 _FALLBACK_OPS = {
     "910a": frozenset(),
-    "910b": frozenset(),
+    "910b": frozenset({
+        "std",              # aclnnVar all-reduce fails with 161002
+        "nansum",           # aclnnReduceNansum returns 161002
+        "instance_norm",    # aclnnInstanceNorm returns 161002
+        "avg_pool2d",           # aclnnAvgPool2d returns 161002
+        "adaptive_avg_pool2d",  # cross-op contamination (cubeMathType=1 corrupts state)
+        "upsample_nearest1d",  # aclnnUpsampleNearest1d broken
+        "einsum",           # aclnnEinsum returns 161002
+        "isinf",            # aclnnIsInf returns 161001 (unavailable)
+        "im2col",           # aclnnIm2col returns 561103
+    }),
     "310b": frozenset({
         "atan2", "where", "flip", "argsort", "sort", "topk",
         "diag", "lerp", "remainder", "isclose", "softplus",

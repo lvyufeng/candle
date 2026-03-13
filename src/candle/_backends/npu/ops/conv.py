@@ -555,12 +555,27 @@ def avg_pool2d(input, kernel_size, stride, padding=0, ceil_mode=False,
                count_include_pad=True, divisor_override=None):
     """AvgPool2d forward using aclnnAvgPool2d."""
     import math as _math
-    runtime = npu_runtime.get_runtime((input.device.index or 0))
-    stream = npu_state.current_stream((input.device.index or 0))
 
     kH, kW = (kernel_size, kernel_size) if isinstance(kernel_size, int) else tuple(kernel_size)
     sH, sW = (stride, stride) if isinstance(stride, int) else tuple(stride)
     pH, pW = (padding, padding) if isinstance(padding, int) else tuple(padding)
+
+    if _use_soc_fallback("avg_pool2d"):
+        # Composite workaround: depthwise conv2d with uniform 1/(kH*kW) weights.
+        # aclnnAvgPool2d returns 161002 on 910B series.
+        from ...._dispatch.dispatcher import dispatch
+        N, C, _, _ = input.shape
+        weight_val = 1.0 / (kH * kW)
+        weight = dispatch("ones", input.device.type,
+                          (C, 1, kH, kW),
+                          dtype=input.dtype, device=input.device)
+        weight = dispatch("mul", input.device.type, weight, weight_val)
+        return dispatch("conv2d", input.device.type, input, weight,
+                        None, [sH, sW], [pH, pW], [1, 1], C)
+
+    # TODO: re-enable native aclnnAvgPool2d when CANN fixes 161002 on 910B
+    runtime = npu_runtime.get_runtime((input.device.index or 0))
+    stream = npu_state.current_stream((input.device.index or 0))
 
     N, C, H, W = input.shape
     if ceil_mode:
@@ -590,11 +605,11 @@ def avg_pool2d(input, kernel_size, stride, padding=0, ceil_mode=False,
 
 
 def adaptive_avg_pool2d(input, output_size):
-    """AdaptiveAvgPool2d forward — composite implementation via avg_pool2d.
+    """AdaptiveAvgPool2d forward.
 
-    Uses avg_pool2d with computed kernel_size/stride/padding to avoid
-    aclnnAdaptiveAvgPool2d cross-op contamination issues on Ascend910B
-    (CANN 8.3.RC2 bug where cubeMathType=1 ops corrupt AdaptiveAvgPool2d state).
+    When fallback is active (910B): aclnnAdaptiveAvgPool2d has cross-op
+    contamination (cubeMathType=1 corrupts state), so we use composite
+    implementation via avg_pool2d.
     """
     import math as _math
 
@@ -605,36 +620,27 @@ def adaptive_avg_pool2d(input, output_size):
 
     N, C, H, W = input.shape
 
-    # Compute avg_pool2d parameters that produce the desired adaptive output.
-    # PyTorch's adaptive pooling algorithm (from ATen/native/AdaptiveAveragePooling.cpp):
-    #   start_index(i) = floor(i * input_size / output_size)
-    #   end_index(i)   = ceil((i+1) * input_size / output_size)
-    # When input_size is evenly divisible by output_size, this simplifies to
-    # a regular avg_pool2d with stride = input_size // output_size and
-    # kernel_size = input_size - (output_size - 1) * stride.
+    if _use_soc_fallback("adaptive_avg_pool2d"):
+        # Composite workaround: reshape + mean (avoids avg_pool2d which also
+        # fails with 161002 on 910B).
+        # Only works when input dims are evenly divisible by output dims.
+        from ...._dispatch.dispatcher import dispatch
+        from ...common import view as view_backend
 
-    def _can_use_regular_pool(in_sz, out_sz):
-        """Check if adaptive pool can be expressed as regular avg_pool2d."""
-        if out_sz == 0:
-            return False
-        if in_sz % out_sz == 0:
-            return True
-        # Also works when all windows have the same size
-        stride = in_sz // out_sz
-        kernel = in_sz - (out_sz - 1) * stride
-        # Verify all windows produce valid output
-        return stride > 0 and kernel > 0 and (out_sz - 1) * stride + kernel == in_sz
+        if H % oH == 0 and W % oW == 0:
+            bH, bW = H // oH, W // oW
+            # (N, C, H, W) → (N, C, oH, bH, oW, bW) → mean over (3, 5)
+            x = view_backend.reshape(input, (N, C, oH, bH, oW, bW))
+            x = dispatch("mean", input.device.type, x, dim=5, keepdim=False)
+            x = dispatch("mean", input.device.type, x, dim=3, keepdim=False)
+            return x
 
-    if _can_use_regular_pool(H, oH) and _can_use_regular_pool(W, oW):
-        sH = H // oH
-        sW = W // oW
-        kH = H - (oH - 1) * sH
-        kW = W - (oW - 1) * sW
-        return avg_pool2d(input, kernel_size=(kH, kW), stride=(sH, sW),
-                          padding=0, ceil_mode=False,
-                          count_include_pad=True, divisor_override=None)
+        raise NotImplementedError(
+            f"adaptive_avg_pool2d composite requires evenly divisible dims, "
+            f"got input ({H}, {W}) → output ({oH}, {oW})"
+        )
 
-    # Fallback: try the native ACLNN kernel for non-uniform window sizes
+    # TODO: re-enable native aclnnAdaptiveAvgPool2d when CANN fixes cross-op contamination
     runtime = npu_runtime.get_runtime((input.device.index or 0))
     stream = npu_state.current_stream((input.device.index or 0))
 
@@ -992,22 +998,38 @@ def upsample_linear1d_op(a, output_size, align_corners=False, scales=None):
 
 
 def upsample_nearest1d_op(a, output_size, scales=None):
-    """Upsample nearest 1D via 2D upsample (ACLNN broken on 910B)."""
+    """Upsample nearest 1D.
+
+    When fallback is active (910B): ACLNN upsample nearest 1D is broken,
+    so we route through 2D upsample (reshape to 4D, upsample, reshape back).
+    """
+    if _use_soc_fallback("upsample_nearest1d"):
+        from ...._dispatch.dispatcher import dispatch
+        from ...common import view as view_backend
+        N, C, W = a.shape
+        oW = output_size[0] if isinstance(output_size, (list, tuple)) else output_size
+        a_4d = view_backend.reshape(a, (N, C, 1, W))
+        out_4d = dispatch("upsample_nearest2d", "npu", a_4d, [1, oW])
+        return view_backend.reshape(out_4d, (N, C, oW))
+    # TODO: re-enable native aclnnUpsampleNearest1d when CANN fixes it
     from ...._dispatch.dispatcher import dispatch
     from ...common import view as view_backend
     N, C, W = a.shape
     oW = output_size[0] if isinstance(output_size, (list, tuple)) else output_size
     a_4d = view_backend.reshape(a, (N, C, 1, W))
-    out_4d = dispatch("upsample_nearest2d", "npu", a_4d, [1, oW], None, scales)
+    out_4d = dispatch("upsample_nearest2d", "npu", a_4d, [1, oW])
     return view_backend.reshape(out_4d, (N, C, oW))
 
 
 def im2col_op(a, kernel_size, dilation, padding, stride):
     """F.unfold: extract sliding local blocks.
 
-    Composite implementation: aclnnIm2col returns 561103 on CANN 8.3.RC2.
-    Uses pad + flatten + gather with existing NPU ops.
+    When fallback is active (910B): aclnnIm2col returns 561103,
+    so we use composite: pad + flatten + gather with existing NPU ops.
     """
+    if not _use_soc_fallback("im2col"):
+        # TODO: re-enable native aclnnIm2col when CANN fixes 561103
+        pass
     from ...._dispatch.dispatcher import dispatch
     from ...common import view as view_backend
 

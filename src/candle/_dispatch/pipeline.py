@@ -6,6 +6,8 @@ import time
 import threading
 from dataclasses import asdict, dataclass
 
+import numpy as np
+
 
 _TLS = threading.local()
 
@@ -160,7 +162,7 @@ def _collect_alias_info(entry):
         if param.name not in bound:
             continue
         value = bound[param.name]
-        if hasattr(value, "device"):
+        if hasattr(value, "device") and not isinstance(value, np.ndarray):
             read_set.append(param.name)
         if param.mutates:
             write_set.append(param.name)
@@ -188,7 +190,7 @@ def _collect_tensor_rw(entry):
         if param.name not in bound:
             continue
         value = bound[param.name]
-        if hasattr(value, "device"):
+        if hasattr(value, "device") and not isinstance(value, np.ndarray):
             read.add(id(value))
             if param.mutates:
                 write.add(id(value))

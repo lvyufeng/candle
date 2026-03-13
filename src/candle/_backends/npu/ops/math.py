@@ -197,6 +197,11 @@ def isfinite(a):
 
 
 def isinf(a):
+    """Check for infinity values.
+
+    When fallback is active (910B): aclnnIsInf returns 161001 (unavailable),
+    so we use composite: !isfinite(x) & isfinite(1/x).
+    """
     # Lazy import to avoid circular dependency with comparison/logical ops
     from . import logical_and, gt, lt
 
@@ -221,19 +226,8 @@ def isinf(a):
         )
         out_storage = npu_typed_storage_from_ptr(out_ptr, _numel(out_shape), bool_dtype, device=a.device)
         return _wrap_tensor(out_storage, out_shape, out_stride)
-    try:
-        aclnn.isinf(
-            storage.data_ptr(),
-            out_ptr,
-            a.shape,
-            a.stride,
-            a.dtype,
-            runtime,
-            stream=stream.stream,
-        )
-    except RuntimeError as exc:
-        if "161001" not in str(exc):
-            raise
+    if _use_soc_fallback("isinf"):
+        # Composite: !isfinite(x) & isfinite(1/x)
         if not (aclnn.logical_not_symbols_ok() and aclnn.logical_and_symbols_ok()):
             raise RuntimeError("aclnnIsInf unavailable and logical ops missing")
         finite = isfinite(a)
@@ -267,6 +261,17 @@ def isinf(a):
         runtime.defer_free(tmp_ptr)
         out_ptr = tmp_bool_ptr
         runtime.defer_free(tmp_bool_ptr)
+    else:
+        # TODO: re-enable native aclnnIsInf when CANN fixes 161001
+        aclnn.isinf(
+            storage.data_ptr(),
+            out_ptr,
+            a.shape,
+            a.stride,
+            a.dtype,
+            runtime,
+            stream=stream.stream,
+        )
     out_storage = npu_typed_storage_from_ptr(out_ptr, _numel(out_shape), bool_dtype, device=a.device)
     return _wrap_tensor(out_storage, out_shape, out_stride)
 

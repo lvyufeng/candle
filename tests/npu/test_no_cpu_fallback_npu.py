@@ -40,7 +40,7 @@ def test_npu_triu_indices_respects_npu_device():
 
 
 @pytest.mark.skipif(not torch.npu.is_available(), reason="NPU not available")
-def test_npu_cartesian_prod_rejects_cpu_roundtrip_path(monkeypatch):
+def test_npu_cartesian_prod_no_cpu_roundtrip(monkeypatch):
     original_to = Tensor.to
 
     def guard_to(self, *args, **kwargs):
@@ -58,12 +58,13 @@ def test_npu_cartesian_prod_rejects_cpu_roundtrip_path(monkeypatch):
     a = torch.tensor([1.0, 2.0], device="npu")
     b = torch.tensor([3.0, 4.0], device="npu")
 
-    with pytest.raises(RuntimeError, match="NPU cartesian_prod is not implemented without CPU fallback"):
-        torch.cartesian_prod(a, b)
+    out = torch.cartesian_prod(a, b)
+    assert out.device.type == "npu"
+    assert out.shape == (4, 2)
 
 
 @pytest.mark.skipif(not torch.npu.is_available(), reason="NPU not available")
-def test_npu_block_diag_rejects_cpu_roundtrip_path(monkeypatch):
+def test_npu_block_diag_no_cpu_roundtrip(monkeypatch):
     original_to = Tensor.to
 
     def guard_to(self, *args, **kwargs):
@@ -81,8 +82,9 @@ def test_npu_block_diag_rejects_cpu_roundtrip_path(monkeypatch):
     a = torch.tensor([[1.0, 2.0]], device="npu")
     b = torch.tensor([[3.0], [4.0]], device="npu")
 
-    with pytest.raises(RuntimeError, match="NPU block_diag is not implemented without CPU fallback"):
-        torch.block_diag(a, b)
+    out = torch.block_diag(a, b)
+    assert out.device.type == "npu"
+    assert out.shape == (3, 3)
 
 
 @pytest.mark.skipif(not torch.npu.is_available(), reason="NPU not available")

@@ -1,4 +1,5 @@
 import inspect
+import numpy as np
 
 from .registry import registry
 from .pipeline import current_pipeline
@@ -289,7 +290,7 @@ def _extract_tensors(args, kwargs):
     tensors = []
 
     def _visit(value):
-        if hasattr(value, "device"):
+        if hasattr(value, "device") and not isinstance(value, np.ndarray):
             tensors.append(value)
             return
         if isinstance(value, (list, tuple)):
