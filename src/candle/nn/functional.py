@@ -1070,11 +1070,8 @@ def rms_norm(input, normalized_shape, weight=None, eps=1e-6):
 
 
 def normalize(input, p=2.0, dim=1, eps=1e-12):
-    from .._functional import norm, div
     from .._dispatch import dispatch
-    norms = norm(input, p=p, dim=dim, keepdim=True)
-    clamped = dispatch("clamp_min", input.device.type, norms, eps)
-    return div(input, clamped)
+    return dispatch("normalize", input.device.type, input, p, dim, eps)
 
 
 def one_hot(tensor, num_classes=-1):
