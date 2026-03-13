@@ -221,6 +221,57 @@ def test_batch_norm_eval_with_stats():
     assert torch.allclose(out, expected, atol=1e-4)
 
 
+def test_normalize_matches_torch_l2_dim1():
+    import torch as torch_ref
+    x = torch.tensor([[3.0, 4.0], [0.0, 0.0]], dtype=torch.float32)
+    out = F.normalize(x, p=2.0, dim=1, eps=1e-12)
+
+    x_ref = torch_ref.tensor([[3.0, 4.0], [0.0, 0.0]], dtype=torch_ref.float32)
+    ref = torch_ref.nn.functional.normalize(x_ref, p=2.0, dim=1, eps=1e-12)
+
+    np.testing.assert_allclose(out.numpy(), ref.detach().numpy(), rtol=1e-6, atol=1e-6)
+
+
+def test_normalize_matches_torch_l1_dim0():
+    import torch as torch_ref
+    x = torch.tensor([[1.0, -1.0], [3.0, 1.0]], dtype=torch.float32)
+    out = F.normalize(x, p=1.0, dim=0, eps=1e-12)
+
+    x_ref = torch_ref.tensor([[1.0, -1.0], [3.0, 1.0]], dtype=torch_ref.float32)
+    ref = torch_ref.nn.functional.normalize(x_ref, p=1.0, dim=0, eps=1e-12)
+
+    np.testing.assert_allclose(out.numpy(), ref.detach().numpy(), rtol=1e-6, atol=1e-6)
+
+
+def test_normalize_zero_norm_respects_eps_matches_torch():
+    import torch as torch_ref
+    x = torch.tensor([[0.0, 0.0], [1e-20, -1e-20]], dtype=torch.float32)
+    out = F.normalize(x, p=2.0, dim=1, eps=1e-12)
+
+    x_ref = torch_ref.tensor([[0.0, 0.0], [1e-20, -1e-20]], dtype=torch_ref.float32)
+    ref = torch_ref.nn.functional.normalize(x_ref, p=2.0, dim=1, eps=1e-12)
+
+    np.testing.assert_allclose(out.numpy(), ref.detach().numpy(), rtol=1e-6, atol=1e-6)
+
+
+def test_normalize_routes_through_dispatch(monkeypatch):
+    calls = []
+    expected = torch.tensor([[42.0]], dtype=torch.float32)
+
+    def fake_dispatch(name, dispatch_device, input, p, dim, eps):
+        calls.append((name, dispatch_device, input.shape, p, dim, eps))
+        return expected
+
+    import candle._dispatch as dispatch_mod
+    monkeypatch.setattr(dispatch_mod, "dispatch", fake_dispatch)
+    x = torch.tensor([[3.0]], dtype=torch.float32)
+
+    out = F.normalize(x, p=2.0, dim=1, eps=1e-12)
+
+    assert out is expected
+    assert calls == [("normalize", "cpu", (1, 1), 2.0, 1, 1e-12)]
+
+
 def test_group_norm_cpu():
     x = torch.tensor([[[1.0, 2.0], [3.0, 4.0]]], device='cpu')  # (N=1, C=2, L=2)
     out = F.group_norm(x, num_groups=2)
