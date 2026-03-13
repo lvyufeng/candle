@@ -14,10 +14,10 @@ from . import runtime as npu_runtime
 
 _FALLBACK_OPS = {
     "910a": frozenset({
-        "amax", "amin", "argmax", "argmin",
+        "amax", "amin", "argmax", "argmin", "aminmax",
     }),
     "910b": frozenset({
-        "amax", "amin", "argmax", "argmin",
+        "amax", "amin", "argmax", "argmin", "aminmax",
     }),
     "310b": frozenset({
         "atan2", "where", "flip", "argsort", "sort", "topk",

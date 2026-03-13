@@ -232,23 +232,33 @@ def kthvalue(a, k, dim=None, keepdim=False):
     return _wrap_tensor(out_storage, out_shape, out_stride)
 
 
-def _amax_aminmax_fallback(a, dim, keepdim):
-    """Use aclnnAminmax as fallback when aclnnMaxDim is unavailable."""
-    result = aminmax_aclnn(a, dim=dim, keepdim=keepdim)
-    return result.max
+def _amax_topk_fallback(a, dim, keepdim):
+    """amax via topk(k=1, largest=True) — avoids broken aclnnMaxDim/aclnnAminmax."""
+    values, _ = topk(a, k=1, dim=dim, largest=True, sorted=False)
+    if not keepdim:
+        out_shape = _reduce_out_shape(a.shape, (dim,), False)
+        values = reshape(values, out_shape)
+    return values
 
 
-def _amin_aminmax_fallback(a, dim, keepdim):
-    """Use aclnnAminmax as fallback when aclnnMinDim is unavailable."""
-    result = aminmax_aclnn(a, dim=dim, keepdim=keepdim)
-    return result.min
+def _amin_topk_fallback(a, dim, keepdim):
+    """amin via topk(k=1, largest=False) — avoids broken aclnnMinDim/aclnnAminmax."""
+    values, _ = topk(a, k=1, dim=dim, largest=False, sorted=False)
+    if not keepdim:
+        out_shape = _reduce_out_shape(a.shape, (dim,), False)
+        values = reshape(values, out_shape)
+    return values
 
 
 def amax(a, dim=None, keepdim=False):
     if a.device.type != "npu":
         raise ValueError("NPU amax expects NPU tensors")
     if _use_soc_fallback("amax"):
-        return _amax_aminmax_fallback(a, dim=dim, keepdim=keepdim)
+        if dim is None:
+            flat = reshape(a, (_numel(a.shape),))
+            return _amax_topk_fallback(flat, dim=0, keepdim=False)
+        dim = _normalize_dim(dim, len(a.shape))
+        return _amax_topk_fallback(a, dim=dim, keepdim=keepdim)
     runtime = npu_runtime.get_runtime((a.device.index or 0))
     stream = npu_state.current_stream((a.device.index or 0))
     if not aclnn.max_dim_symbols_ok():
@@ -291,7 +301,11 @@ def amin(a, dim=None, keepdim=False):
     if a.device.type != "npu":
         raise ValueError("NPU amin expects NPU tensors")
     if _use_soc_fallback("amin"):
-        return _amin_aminmax_fallback(a, dim=dim, keepdim=keepdim)
+        if dim is None:
+            flat = reshape(a, (_numel(a.shape),))
+            return _amin_topk_fallback(flat, dim=0, keepdim=False)
+        dim = _normalize_dim(dim, len(a.shape))
+        return _amin_topk_fallback(a, dim=dim, keepdim=keepdim)
     runtime = npu_runtime.get_runtime((a.device.index or 0))
     stream = npu_state.current_stream((a.device.index or 0))
     if not aclnn.min_dim_symbols_ok():
@@ -1296,8 +1310,13 @@ def aminmax_op(a, dim=None, keepdim=False):
 
 def aminmax_aclnn(a, dim=None, keepdim=False):
     from collections import namedtuple
-    from ...._dispatch.dispatcher import dispatch
     AminmaxResult = namedtuple("aminmax", ["min", "max"])
+
+    # aclnnAminmax also poisons ACLNN state on 910a/910b — fall back to
+    # topk-based amin/amax which are safe.
+    if _use_soc_fallback("aminmax"):
+        return AminmaxResult(amin(a, dim=dim, keepdim=keepdim),
+                             amax(a, dim=dim, keepdim=keepdim))
 
     runtime = npu_runtime.get_runtime((a.device.index or 0))
     stream = npu_state.current_stream((a.device.index or 0))
