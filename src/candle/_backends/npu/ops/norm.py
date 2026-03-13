@@ -290,11 +290,15 @@ def group_norm(input, num_groups, weight=None, bias=None, eps=1e-5):
 
 def instance_norm(input, weight=None, bias=None, running_mean=None, running_var=None,
                   use_input_stats=True, momentum=0.1, eps=1e-5, cudnn_enabled=False):
-    """Instance normalization as composite of existing dispatched ops.
+    """Instance normalization.
 
-    Note: aclnnInstanceNorm returns 161002 on CANN 8.3.RC2 (Ascend910B),
-    so we use composite implementation.
+    When fallback is active (910B): aclnnInstanceNorm returns 161002,
+    so we use composite of existing dispatched ops.
     """
+    # TODO: re-enable native aclnnInstanceNorm when CANN fixes 161002
+    if not _use_soc_fallback("instance_norm"):
+        # Native path placeholder — currently no chips bypass the fallback
+        pass
     if input.dim() < 2:
         raise ValueError("instance_norm expects input with at least 2 dims")
 

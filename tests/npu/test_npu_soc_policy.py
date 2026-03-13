@@ -3,7 +3,7 @@ from candle._backends.npu import ops_soc
 
 def test_soc_policy_profile_mapping_contains_expected_profiles():
     assert ops_soc.fallback_ops("910a") == frozenset()
-    assert ops_soc.fallback_ops("910b") == frozenset()
+    assert "std" in ops_soc.fallback_ops("910b")
     assert ops_soc.fallback_ops("310p") == frozenset()
     assert "uniform_" in ops_soc.fallback_ops("310b")
 
@@ -35,6 +35,22 @@ def test_soc_capability_table_routes_smallop_linspace_for_310b_only():
 def test_soc_capability_unknown_profile_uses_default_value():
     assert not ops_soc.capability("use_smallop_arange_1d", profile="unknown")
     assert ops_soc.capability("missing_key", profile="unknown", default=True)
+
+
+def test_soc_910b_fallback_ops_cover_expected_watchlist_set():
+    expected = {
+        "std",
+        "nansum",
+        "instance_norm",
+        "avg_pool2d",
+        "adaptive_avg_pool2d",
+        "upsample_nearest1d",
+        "einsum",
+        "isinf",
+        "im2col",
+    }
+    got = set(ops_soc.fallback_ops("910b"))
+    assert got == expected
 
 
 def test_soc_310b_fallback_ops_cover_expected_watchlist_set():
