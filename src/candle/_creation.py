@@ -1,7 +1,6 @@
 import numpy as np
 
 from ._dtype import float32
-from ._dtype import int64 as int64_dtype
 from ._dtype import bool as bool_dtype
 from ._functional import tensor as tensor_dispatch
 from ._functional import zeros as zeros_dispatch
@@ -22,29 +21,22 @@ from ._functional import normal as normal_dispatch
 
 def _infer_creation_dtype(data):
     if isinstance(data, (np.ndarray, np.generic)):
-        if data.dtype == np.bool_:
-            return bool_dtype
-        if np.issubdtype(data.dtype, np.integer):
-            return int64_dtype
-        return None
+        return bool_dtype if data.dtype == np.bool_ else None
     if hasattr(data, "dtype"):
         return None
     try:
         arr = np.asarray(data)
     except Exception:
         return None
-    if arr.dtype == np.bool_:
-        return bool_dtype
-    if np.issubdtype(arr.dtype, np.integer):
-        return int64_dtype
-    return None
+    return bool_dtype if arr.dtype == np.bool_ else None
 
 
 def tensor(data, *, dtype=None, device=None, requires_grad=False):
     if dtype is None:
         dtype = _infer_creation_dtype(data)
     if dtype is None:
-        dtype = float32
+        from . import get_default_dtype
+        dtype = get_default_dtype()
     return tensor_dispatch(data, dtype=dtype, device=device, requires_grad=requires_grad)
 
 
@@ -121,10 +113,18 @@ def from_numpy(ndarray):
 
 
 def as_tensor(data, dtype=None, device=None):
+    from ._tensor import Tensor
+
+    if isinstance(data, Tensor):
+        if dtype is None and device is None:
+            return data
+        return data.to(device=device, dtype=dtype)
+
     if dtype is None:
         dtype = _infer_creation_dtype(data)
     if dtype is None:
-        dtype = float32
+        from . import get_default_dtype
+        dtype = get_default_dtype()
     return tensor_dispatch(data, dtype=dtype, device=device)
 
 
