@@ -121,7 +121,7 @@ class OpSchema:
         )
         return True
 
-    def _validate_types(self, args, kwargs, *, name, error_overrides, got):
+    def _validate_types(self, args, kwargs, *, name, error_overrides, got):  # pylint: disable=too-many-statements
         if kwargs is None:
             kwargs = {}
 
