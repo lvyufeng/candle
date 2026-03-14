@@ -22,12 +22,9 @@ from ._helpers import (
 def contiguous(a):
     if a.device.type != "mps":
         raise ValueError("MPS contiguous expects MPS tensors")
-    if _can_use_gpu(a):
-        if a.is_contiguous():
-            return a
-        return _dispatch_unary_gpu(a, "identity")
-    arr = np.ascontiguousarray(_to_numpy(a))
-    return _from_numpy(arr, a.dtype, a.device)
+    if a.is_contiguous():
+        return a
+    return _dispatch_unary_gpu(a, "identity")
 
 def flip(a, dims):
     if (_can_use_gpu(a) and a.is_contiguous()
@@ -55,6 +52,9 @@ def flip(a, dims):
             return _from_metal_buffer(out_buf, out_shape,
                                       _compute_strides(out_shape),
                                       a.dtype, a.device)
+    # Non-contiguous GPU: make contiguous and retry
+    if _can_use_gpu(a):
+        return flip(a.contiguous(), dims)
     arr = _to_numpy(a)
     out = np.flip(arr, axis=dims)
     return _from_numpy(np.ascontiguousarray(out), a.dtype, a.device)
@@ -88,6 +88,9 @@ def roll(a, shifts, dims=None):
             return _from_metal_buffer(out_buf, out_shape,
                                       _compute_strides(out_shape),
                                       a.dtype, a.device)
+    # Non-contiguous GPU or dims=None: make contiguous and retry
+    if _can_use_gpu(a):
+        return roll(a.contiguous(), shifts, dims)
     arr = _to_numpy(a)
     out = np.roll(arr, shift=shifts, axis=dims)
     return _from_numpy(np.ascontiguousarray(out), a.dtype, a.device)
@@ -105,6 +108,9 @@ def rot90(a, k=1, dims=(0, 1)):
             return flip(flip(a, (d0,)), (d1,))
         else:  # k == 3
             return flip(a, (d0,)).transpose(d0, d1)
+    # Non-contiguous GPU: make contiguous and retry
+    if _can_use_gpu(a):
+        return rot90(a.contiguous(), k=k, dims=dims)
     arr = _to_numpy(a)
     out = np.rot90(arr, k=k, axes=dims)
     return _from_numpy(np.ascontiguousarray(out), a.dtype, a.device)
@@ -135,6 +141,9 @@ def repeat(a, repeats):
         # Reshape to final: (r0*s0, r1*s1, ...)
         final_shape = tuple(r * s for r, s in zip(reps, a.shape))
         return a_exp.contiguous().reshape(final_shape)
+    # Non-contiguous: make contiguous and retry
+    if a.device.type == 'mps':
+        return repeat(a.contiguous(), repeats)
     arr = _to_numpy(a)
     out = np.tile(arr, repeats)
     return _from_numpy(np.ascontiguousarray(out), a.dtype, a.device)
@@ -167,9 +176,10 @@ def nonzero(a, as_tuple=False):
 
 def stack(tensors, dim=0):
     # GPU path: composite via unsqueeze + cat
-    if (tensors and all(_can_use_gpu(t) and t.is_contiguous() for t in tensors)
+    if (tensors and all(_can_use_gpu(t) for t in tensors)
             and all(t.dtype == tensors[0].dtype for t in tensors)):
-        unsqueezed = [t.unsqueeze(dim) for t in tensors]
+        unsqueezed = [t.contiguous().unsqueeze(dim) if not t.is_contiguous()
+                      else t.unsqueeze(dim) for t in tensors]
         return cat(unsqueezed, dim=dim)
     arrays = [_to_numpy(t) for t in tensors]
     return _from_numpy(np.stack(arrays, axis=dim), tensors[0].dtype, tensors[0].device)
@@ -223,6 +233,10 @@ def cat(tensors, dim=0):
             return _from_metal_buffer(out_buf, tuple(out_shape),
                                       tuple(out_stride), dtype,
                                       tensors[0].device)
+    # Non-contiguous GPU: make contiguous and retry
+    if (tensors and all(_can_use_gpu(t) for t in tensors)
+            and all(t.dtype == tensors[0].dtype for t in tensors)):
+        return cat([t.contiguous() for t in tensors], dim=dim)
     arrays = [_to_numpy(t) for t in tensors]
     return _from_numpy(np.concatenate(arrays, axis=dim), tensors[0].dtype, tensors[0].device)
 
@@ -244,17 +258,15 @@ def row_stack(tensors):
     return vstack(tensors)
 
 def dstack(tensors):
-    arrays = [_to_numpy(t) for t in tensors]
     expanded = []
-    for arr in arrays:
-        if arr.ndim == 1:
-            expanded.append(arr.reshape(1, arr.shape[0], 1))
-        elif arr.ndim == 2:
-            expanded.append(arr.reshape(arr.shape[0], arr.shape[1], 1))
+    for t in tensors:
+        if t.dim() == 1:
+            expanded.append(t.reshape((1, t.shape[0], 1)))
+        elif t.dim() == 2:
+            expanded.append(t.reshape((t.shape[0], t.shape[1], 1)))
         else:
-            expanded.append(arr)
-    out = np.concatenate(expanded, axis=2)
-    return _from_numpy(out, tensors[0].dtype, tensors[0].device)
+            expanded.append(t)
+    return cat(expanded, dim=2)
 
 def column_stack(tensors):
     if tensors[0].dim() == 1:
@@ -303,6 +315,9 @@ def tril(a, diagonal=0):
         d.dispatch_tril_triu(f"tril_{sfx}", _metal_buf(a), out_buf,
                              rows, cols, diagonal, numel)
         return _from_metal_buffer(out_buf, a.shape, a.stride, a.dtype, a.device)
+    # Non-contiguous GPU: make contiguous and retry
+    if _can_use_gpu(a) and a.dim() >= 2:
+        return tril(a.contiguous(), diagonal=diagonal)
     out = np.tril(_to_numpy(a), k=diagonal)
     return _from_numpy(out, a.dtype, a.device)
 
@@ -318,6 +333,9 @@ def triu(a, diagonal=0):
         d.dispatch_tril_triu(f"triu_{sfx}", _metal_buf(a), out_buf,
                              rows, cols, diagonal, numel)
         return _from_metal_buffer(out_buf, a.shape, a.stride, a.dtype, a.device)
+    # Non-contiguous GPU: make contiguous and retry
+    if _can_use_gpu(a) and a.dim() >= 2:
+        return triu(a.contiguous(), diagonal=diagonal)
     out = np.triu(_to_numpy(a), k=diagonal)
     return _from_numpy(out, a.dtype, a.device)
 
@@ -939,6 +957,9 @@ def flatten(a, start_dim=0, end_dim=-1):
     if _can_use_gpu(a) and a.is_contiguous():
         from ...._tensor import _compute_strides
         return _from_metal_buffer(_metal_buf(a), new_shape, _compute_strides(new_shape), a.dtype, a.device)
+    # Non-contiguous GPU: make contiguous and retry
+    if _can_use_gpu(a):
+        return flatten(a.contiguous(), start_dim=start_dim, end_dim=end_dim)
     arr = _to_numpy(a)
     out = arr.reshape(new_shape)
     return _from_numpy(np.ascontiguousarray(out), a.dtype, a.device)
@@ -950,6 +971,9 @@ def unflatten(a, dim, sizes):
     if _can_use_gpu(a) and a.is_contiguous():
         from ...._tensor import _compute_strides
         return _from_metal_buffer(_metal_buf(a), new_shape, _compute_strides(new_shape), a.dtype, a.device)
+    # Non-contiguous GPU: make contiguous and retry
+    if _can_use_gpu(a):
+        return unflatten(a.contiguous(), dim, sizes)
     arr = _to_numpy(a)
     out = arr.reshape(new_shape)
     return _from_numpy(np.ascontiguousarray(out), a.dtype, a.device)
@@ -974,14 +998,28 @@ def broadcast_to(a, shape):
                 break
         else:
             return _from_metal_buffer(_metal_buf(a), tuple(shape), tuple(out_stride), a.dtype, a.device)
+    # Non-contiguous GPU: make contiguous and retry
+    if _can_use_gpu(a):
+        return broadcast_to(a.contiguous(), shape)
     arr = _to_numpy(a)
     out = np.broadcast_to(arr, shape)
     return _from_numpy(np.ascontiguousarray(out), a.dtype, a.device)
 
 def movedim(a, source, destination):
-    arr = _to_numpy(a)
-    out = np.moveaxis(arr, source, destination)
-    return _from_numpy(np.ascontiguousarray(out), a.dtype, a.device)
+    # GPU composite: compute permutation and use permute (pure view op)
+    ndim = len(a.shape)
+    if isinstance(source, int):
+        source = (source,)
+    if isinstance(destination, int):
+        destination = (destination,)
+    source = tuple(s % ndim for s in source)
+    destination = tuple(d % ndim for d in destination)
+    # Build permutation: same logic as np.moveaxis
+    order = [n for n in range(ndim) if n not in source]
+    dst_order = sorted(range(len(destination)), key=lambda i: destination[i])
+    for dst_idx in dst_order:
+        order.insert(destination[dst_idx], source[dst_idx])
+    return a.permute(*order)
 
 def diagonal(a, offset=0, dim1=0, dim2=1):
     arr = _to_numpy(a)

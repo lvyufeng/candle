@@ -104,6 +104,12 @@ def batch_norm(input, running_mean, running_var, weight=None, bias=None,
         out_stride = _compute_strides(out_shape)
         return _from_metal_buffer(out_buf, out_shape, out_stride, input.dtype, input.device)
 
+    # Non-contiguous GPU: make contiguous and retry
+    if _can_use_gpu(input):
+        return batch_norm(input.contiguous(), running_mean, running_var,
+                          weight=weight, bias=bias, training=training,
+                          momentum=momentum, eps=eps)
+
     # Numpy fallback
     arr = _to_numpy(input)
 
@@ -158,6 +164,10 @@ def group_norm(input, num_groups, weight=None, bias=None, eps=1e-5):
             N, C, spatial_size, num_groups, float(eps), has_w, has_b, total)
         return _from_metal_buffer(out_buf, tuple(input.shape),
                                   tuple(input.stride()), input.dtype, input.device)
+
+    # Non-contiguous GPU: make contiguous and retry
+    if _can_use_gpu(input):
+        return group_norm(input.contiguous(), num_groups, weight=weight, bias=bias, eps=eps)
 
     arr = _to_numpy(input)
     N, C = arr.shape[:2]
@@ -222,6 +232,10 @@ def layer_norm(input, normalized_shape, weight=None, bias=None, eps=1e-5):
         out_stride = _compute_strides(out_shape)
         return _from_metal_buffer(out_buf, out_shape, out_stride, input.dtype, input.device)
 
+    # Non-contiguous GPU: make contiguous and retry
+    if _can_use_gpu(input):
+        return layer_norm(input.contiguous(), normalized_shape, weight=weight, bias=bias, eps=eps)
+
     # Numpy fallback
     arr = _to_numpy(input)
     axis = tuple(range(arr.ndim - len(norm_shape), arr.ndim))
@@ -238,6 +252,29 @@ def layer_norm(input, normalized_shape, weight=None, bias=None, eps=1e-5):
 
 def instance_norm(input, weight=None, bias=None, running_mean=None, running_var=None,
                   use_input_stats=True, momentum=0.1, eps=1e-5, cudnn_enabled=False):
+    # GPU composite: instance_norm = group_norm with num_groups=C
+    if (_can_use_gpu(input) and input.dtype in (float32_dtype, float16_dtype)
+            and len(input.shape) >= 2):
+        C = input.shape[1]
+        result = group_norm(input, num_groups=C, weight=weight, bias=bias, eps=eps)
+        # Update running stats if needed
+        if use_input_stats and (running_mean is not None or running_var is not None):
+            arr = _to_numpy(input)
+            ndim = len(arr.shape)
+            N = arr.shape[0]
+            spatial_axes = tuple(range(2, ndim))
+            mean = arr.mean(axis=spatial_axes, keepdims=True)
+            var = arr.var(axis=spatial_axes, keepdims=True)
+            if running_mean is not None:
+                rm = _to_numpy(running_mean)
+                batch_mean = mean.reshape(N, C).mean(axis=0)
+                rm[:] = (1 - momentum) * rm + momentum * batch_mean
+            if running_var is not None:
+                rv = _to_numpy(running_var)
+                batch_var = var.reshape(N, C).mean(axis=0)
+                rv[:] = (1 - momentum) * rv + momentum * batch_var
+        return result
+
     arr = _to_numpy(input)
     ndim = len(arr.shape)
     N = arr.shape[0]
@@ -305,6 +342,10 @@ def rms_norm(input, normalized_shape, weight=None, eps=1e-6):
         out_stride = _compute_strides(out_shape)
         return _from_metal_buffer(out_buf, out_shape, out_stride, input.dtype, input.device)
 
+    # Non-contiguous GPU: make contiguous and retry
+    if _can_use_gpu(input):
+        return rms_norm(input.contiguous(), normalized_shape, weight=weight, eps=eps)
+
     # Numpy fallback
     arr = _to_numpy(input)
     axis = tuple(range(arr.ndim - len(norm_shape), arr.ndim))
@@ -315,6 +356,16 @@ def rms_norm(input, normalized_shape, weight=None, eps=1e-6):
     return _from_numpy(np.ascontiguousarray(out), input.dtype, input.device)
 
 def normalize(a, p=2.0, dim=1, eps=1e-12):
+    if _can_use_gpu(a) and a.dtype.is_floating_point:
+        from .reduce import norm_
+        from .math import div
+        from .activation import clamp_min
+        from .shape import expand
+        n = norm_(a, p=p, dim=dim, keepdim=True)
+        n_clamped = clamp_min(n, eps)
+        # Expand norm to match input shape for element-wise div
+        n_expanded = expand(n_clamped, tuple(a.shape))
+        return div(a, n_expanded)
     arr = _to_numpy(a).astype(np.float64)
     norm = np.linalg.norm(arr, ord=p, axis=dim, keepdims=True)
     norm = np.maximum(norm, eps)
