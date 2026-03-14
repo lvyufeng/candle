@@ -155,12 +155,8 @@ def norm_(a, p=2, dim=None, keepdim=False):
     """Compute the p-norm of a tensor (GPU composite)."""
     from ...._dtype import float32 as f32
     out_dtype = a.dtype if a.dtype.is_floating_point else f32
-    if _can_use_gpu(a):
+    if _can_use_gpu(a) and a.dtype.is_floating_point:
         a_c = a.contiguous() if not a.is_contiguous() else a
-        # Cast to float if needed
-        if not a_c.dtype.is_floating_point:
-            from .elementwise import to as _to
-            a_c = _to(a_c, f32)
         if p == 2:
             sq = mul(a_c, a_c)
             s = sum_(sq, dim=dim, keepdim=keepdim)
