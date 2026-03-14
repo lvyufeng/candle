@@ -185,6 +185,18 @@ def _autograd_rrelu():
     return wrapper
 
 
+def _norm_extract_weight_bias(args, kwargs):
+    """Extract weight and bias tensors from norm op args."""
+    from .._tensor import Tensor
+    weight = args[1] if len(args) > 1 else kwargs.get("weight", None)
+    bias = args[2] if len(args) > 2 else kwargs.get("bias", None)
+    if weight is not None and not isinstance(weight, Tensor):
+        weight = None
+    if bias is not None and not isinstance(bias, Tensor):
+        bias = None
+    return weight, bias
+
+
 def _autograd_norm(name, backward_impl):
     """Autograd wrapper for normalization ops (layer_norm, batch_norm, rms_norm).
 
@@ -192,21 +204,49 @@ def _autograd_norm(name, backward_impl):
     forward output and passes it to *backward_impl* as the 5th positional arg.
     This allows NPU backward kernels to access saved intermediate data (mean,
     rstd, etc.) that the NPU forward op attached to its output tensor.
+
+    Also tracks weight and bias as Node inputs so their gradients propagate.
     """
     def wrapper(a, *args, **kwargs):
         active_keyset = current_dispatch_keyset()
         raw_keyset = _strip_autograd_keys(active_keyset)
         out = redispatch(name, raw_keyset, a, *args, **kwargs)
-        if GradMode.enabled and a.requires_grad:
+
+        weight, bias = _norm_extract_weight_bias(args, kwargs)
+        any_requires_grad = a.requires_grad
+        if weight is not None and getattr(weight, "requires_grad", False):
+            any_requires_grad = True
+        if bias is not None and getattr(bias, "requires_grad", False):
+            any_requires_grad = True
+
+        if GradMode.enabled and any_requires_grad:
             backward_data = getattr(out, "_backward_data", None)
             node_holder = {}
+
+            # Build inputs list: input + optional weight + optional bias
+            inputs = [a]
+            if weight is not None and getattr(weight, "requires_grad", False):
+                inputs.append(weight)
+            if bias is not None and getattr(bias, "requires_grad", False):
+                inputs.append(bias)
 
             def _backward(grad):
                 saved_a = node_holder["node"].saved_tensors()[0]
                 backward_keyset = _backward_dispatch_keyset(raw_keyset, active_keyset)
-                return backward_impl(grad, a, saved_a, backward_keyset, args, kwargs, backward_data)
+                all_grads = backward_impl(grad, a, saved_a, backward_keyset, args, kwargs, backward_data)
+                # all_grads = (grad_input, grad_weight, grad_bias)
+                # Map to the inputs list we built
+                result = []
+                result.append(all_grads[0])  # grad_input
+                idx = 1
+                if weight is not None and getattr(weight, "requires_grad", False):
+                    result.append(all_grads[idx] if idx < len(all_grads) else None)
+                    idx += 1
+                if bias is not None and getattr(bias, "requires_grad", False):
+                    result.append(all_grads[idx] if idx < len(all_grads) else None)
+                return tuple(result)
 
-            node = Node(_backward, (a,), name=f"{name.capitalize()}Backward0")
+            node = Node(_backward, tuple(inputs), name=f"{name.capitalize()}Backward0")
             annotate_node_creation(node)
             node_holder["node"] = weakref.proxy(node)
             node.save_for_backward(a)
@@ -778,7 +818,18 @@ def _layer_norm_backward(grad, _a, saved_a, keyset, args, kwargs, backward_data=
                 redispatch("add", keyset, dl_dxhat, redispatch("neg", keyset, mean_dl_dxhat)),
                 redispatch("neg", keyset, redispatch("mul", keyset, x_hat, mean_dl_dxhat_xhat))))
 
-        return (grad_input,)
+        # Compute weight and bias gradients
+        grad_weight = None
+        grad_bias = None
+        if weight is not None and getattr(weight, "requires_grad", False):
+            # grad_weight = sum over batch dims of (grad * x_hat)
+            batch_dims = tuple(range(ndim - n_norm))
+            grad_weight = redispatch("sum", keyset, redispatch("mul", keyset, grad, x_hat), dim=batch_dims)
+        if bias is not None and getattr(bias, "requires_grad", False):
+            batch_dims = tuple(range(ndim - n_norm))
+            grad_bias = redispatch("sum", keyset, grad, dim=batch_dims)
+
+        return (grad_input, grad_weight, grad_bias)
 
 
 # ---------------------------------------------------------------------------
@@ -1076,11 +1127,13 @@ def _autograd_dropout():
                 training = args[1] if len(args) > 1 else kwargs.get("training", True)
                 if not training or p == 0:
                     return (grad,)
-                # Without the mask we cannot compute the exact backward;
-                # use the output to infer which elements were zeroed
-                out_np = _to_numpy(out)
-                a_np = _to_numpy(a)
-                mask_np = _np.where(_np.abs(a_np) > 0, (out_np != 0).astype(g_np.dtype), 1.0)
+                if backward_data is not None and "mask" in backward_data:
+                    mask_np = backward_data["mask"].astype(g_np.dtype)
+                    p = backward_data["p"]
+                else:
+                    out_np = _to_numpy(out)
+                    a_np = _to_numpy(a)
+                    mask_np = _np.where(_np.abs(a_np) > 0, (out_np != 0).astype(g_np.dtype), 1.0)
                 scale = 1.0 / (1.0 - p) if p < 1.0 else 0.0
                 grad_np = g_np * mask_np * scale
                 return (_from_numpy(grad_np, grad.dtype, grad.device),)
