@@ -164,6 +164,8 @@ def heaviside(a, values):
 
 def diff(a, n=1, dim=-1, prepend=None, append=None):
     """Compute the n-th discrete difference along the given dim."""
+    # NOTE: GPU composite blocked by _metal_buf not handling storage offsets;
+    # narrow views share the underlying buffer so sub() reads wrong data.
     arr = _to_numpy(a)
     if prepend is not None or append is not None:
         pieces = []
