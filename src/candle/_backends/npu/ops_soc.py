@@ -24,6 +24,8 @@ _FALLBACK_OPS = {
         # after executor pool pressure; use isclose (single kernel) + all_ instead.
         "allclose",
         "isinf",            # aclnnIsInf returns 161001 (unavailable)
+        "frac",             # aclnnFrac returns 561000 (unsupported)
+        "gather",           # aclnnGather returns 561103 on multi-dim inputs
         "matmul",           # aclnnMatmul on 910A only supports float16; float32 inputs are cast
         "addmm",            # aclnnAddmm on 910A only supports float16; float32 inputs are cast
         "mv",               # aclnnMv on 910A only supports float16; float32 inputs are cast
