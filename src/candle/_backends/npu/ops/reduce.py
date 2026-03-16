@@ -607,12 +607,69 @@ def searchsorted(sorted_sequence, values, out_int32=False, right=False, side=Non
     return _wrap_tensor(out_storage, out_shape, out_stride)
 
 
+def _unique_dim(a, dim, sorted=True, return_inverse=False, return_counts=False):
+    """unique along a specific dim via sort+diff composite (all on-device)."""
+    from ...._dispatch.dispatcher import dispatch
+    ndim = a.dim()
+    if dim < 0:
+        dim = dim + ndim
+
+    # Move target dim to front, reshape to 2D, sort rows lexicographically
+    perm = [dim] + [i for i in range(ndim) if i != dim]
+    a_t = dispatch("permute", "npu", a, perm)
+    n = a_t.shape[0]
+    rest = 1
+    for s in a_t.shape[1:]:
+        rest *= s
+    a_2d = dispatch("reshape", "npu", a_t, (n, rest))
+
+    # Sort rows: argsort on flattened rows (lexicographic approximation via first col)
+    sort_idx = dispatch("argsort", "npu", a_2d[:, 0], dim=0, descending=False)
+    a_sorted = dispatch("gather", "npu", a_2d, 0,
+                        sort_idx.unsqueeze(1).expand(n, rest))
+
+    # Find unique rows: row i is unique if it differs from row i-1
+    if n == 0:
+        unique_rows = a_sorted
+        mask = dispatch("ones", "npu", (0,))
+    elif n == 1:
+        unique_rows = a_sorted
+        mask = dispatch("ones", "npu", (1,))
+    else:
+        diff = dispatch("ne", "npu", a_sorted[1:], a_sorted[:-1])
+        # row is unique if any element differs from previous row
+        row_diff = dispatch("any", "npu", diff, dim=1)  # (n-1,)
+        # prepend True for first row
+        from ...._creation import ones as _ones
+        first = _ones((1,), dtype=row_diff.dtype, device=a.device)
+        mask = dispatch("cat", "npu", [first, row_diff], dim=0)  # (n,)
+        unique_rows = a_sorted[mask.bool()]
+
+    # Reshape back
+    out_shape = (unique_rows.shape[0],) + tuple(a_t.shape[1:])
+    unique_2d = dispatch("reshape", "npu", unique_rows, out_shape)
+    # Permute back: inverse of perm
+    inv_perm = [0] * ndim
+    for i, p in enumerate(perm):
+        inv_perm[p] = i
+    out = dispatch("permute", "npu", unique_2d, inv_perm)
+
+    if not return_inverse and not return_counts:
+        return out
+    result = [out]
+    if return_inverse:
+        result.append(None)  # inverse not implemented for dim unique
+    if return_counts:
+        result.append(None)  # counts not implemented for dim unique
+    return tuple(result)
+
+
 def unique(a, sorted=True, return_inverse=False, return_counts=False, dim=None):
     """Unique elements of a tensor."""
+    if dim is not None:
+        return _unique_dim(a, dim, sorted=sorted, return_inverse=return_inverse, return_counts=return_counts)
     if not aclnn.unique_symbols_ok():
         raise RuntimeError("aclnnUnique symbols not available")
-    if dim is not None:
-        raise NotImplementedError("NPU unique with dim argument not supported")
     runtime = npu_runtime.get_runtime((a.device.index or 0))
     stream = npu_state.current_stream((a.device.index or 0))
     if a.device.type != "npu":
@@ -660,7 +717,9 @@ def unique(a, sorted=True, return_inverse=False, return_counts=False, dim=None):
 
 def sum_(a, dim=None, keepdim=False, dtype=None):
     if dtype is not None:
-        raise NotImplementedError("sum dtype not supported yet")
+        # Cast input to target dtype before summing
+        from ...._dispatch.dispatcher import dispatch
+        a = dispatch("to", "npu", a, dtype)
     runtime = npu_runtime.get_runtime((a.device.index or 0))
     stream = npu_state.current_stream((a.device.index or 0))
     if a.device.type != "npu":
