@@ -277,7 +277,8 @@ def _slice_along_dim(a, start, end, dim):
         raise ValueError("NPU slice expects NPU tensors")
     dim = _normalize_dim(dim, a.dim())
     if not a.is_contiguous():
-        raise NotImplementedError("NPU split only supports contiguous input")
+        from ...._dispatch.dispatcher import dispatch
+        a = dispatch("contiguous", "npu", a)
     dim_size = a.shape[dim]
     length = max(0, end - start)
     out_shape = list(a.shape)

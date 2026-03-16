@@ -1228,8 +1228,6 @@ def affine_grid_op(theta, size, align_corners=None):
 def pad(input, pad, mode='constant', value=0):
     if input.device.type != "npu":
         raise ValueError("NPU pad expects NPU tensors")
-    if mode != "constant":
-        raise NotImplementedError("NPU pad currently supports constant mode only")
     if not isinstance(pad, (tuple, list)):
         raise TypeError("pad must be a tuple/list of ints")
     if len(pad) % 2 != 0:
@@ -1238,42 +1236,86 @@ def pad(input, pad, mode='constant', value=0):
         raise ValueError("padding length too large")
     pad_vals = tuple(int(v) for v in pad)
 
-    out_shape = list(input.shape)
+    if mode == 'constant':
+        out_shape = list(input.shape)
+        n_pairs = len(pad_vals) // 2
+        for i in range(n_pairs):
+            dim = input.dim() - 1 - i
+            left = pad_vals[2 * i]
+            right = pad_vals[2 * i + 1]
+            out_shape[dim] = out_shape[dim] + left + right
+            if out_shape[dim] < 0:
+                raise RuntimeError("negative output size is not supported")
+        out_shape = tuple(out_shape)
+
+        out_stride = npu_runtime._contiguous_stride(out_shape)
+        runtime = npu_runtime.get_runtime((input.device.index or 0))
+        stream = npu_state.current_stream((input.device.index or 0))
+        out_ptr = npu_runtime._alloc_device(max(_numel(out_shape), 1) * _dtype_itemsize(input.dtype), runtime=runtime)
+
+        if not aclnn.constant_pad_nd_symbols_ok():
+            raise RuntimeError("aclnnConstantPadNd symbols not available")
+
+        aclnn.constant_pad_nd(
+            _unwrap_storage(input).data_ptr(),
+            out_ptr,
+            input.shape,
+            input.stride,
+            input.dtype,
+            pad_vals,
+            value,
+            out_shape,
+            out_stride,
+            input.dtype,
+            runtime,
+            stream=stream.stream,
+        )
+
+        out_storage = npu_typed_storage_from_ptr(out_ptr, max(_numel(out_shape), 1), input.dtype, device=input.device)
+        return _wrap_tensor(out_storage, out_shape, out_stride)
+
+    # Non-constant modes: composite via slice/cat (all on-device)
+    from ...._dispatch.dispatcher import dispatch
     n_pairs = len(pad_vals) // 2
+    out = input
     for i in range(n_pairs):
-        dim = input.dim() - 1 - i
+        d = out.dim() - 1 - i
         left = pad_vals[2 * i]
         right = pad_vals[2 * i + 1]
-        out_shape[dim] = out_shape[dim] + left + right
-        if out_shape[dim] < 0:
-            raise RuntimeError("negative output size is not supported")
-    out_shape = tuple(out_shape)
-
-    out_stride = npu_runtime._contiguous_stride(out_shape)
-    runtime = npu_runtime.get_runtime((input.device.index or 0))
-    stream = npu_state.current_stream((input.device.index or 0))
-    out_ptr = npu_runtime._alloc_device(max(_numel(out_shape), 1) * _dtype_itemsize(input.dtype), runtime=runtime)
-
-    if not aclnn.constant_pad_nd_symbols_ok():
-        raise RuntimeError("aclnnConstantPadNd symbols not available")
-
-    aclnn.constant_pad_nd(
-        _unwrap_storage(input).data_ptr(),
-        out_ptr,
-        input.shape,
-        input.stride,
-        input.dtype,
-        pad_vals,
-        value,
-        out_shape,
-        out_stride,
-        input.dtype,
-        runtime,
-        stream=stream.stream,
-    )
-
-    out_storage = npu_typed_storage_from_ptr(out_ptr, max(_numel(out_shape), 1), input.dtype, device=input.device)
-    return _wrap_tensor(out_storage, out_shape, out_stride)
+        dim_size = out.shape[d]
+        if mode == 'reflect':
+            if left > 0:
+                # reflect: reverse first `left` elements (excluding index 0)
+                idx = list(range(left, 0, -1))
+                slices = [dispatch("select", "npu", out, d, j) for j in idx]
+                left_pad = dispatch("stack", "npu", slices, dim=d)
+                out = dispatch("cat", "npu", [left_pad, out], dim=d)
+            if right > 0:
+                idx = list(range(dim_size - 2, dim_size - 2 - right, -1))
+                slices = [dispatch("select", "npu", out, d, out.shape[d] - dim_size + j) for j in idx]
+                right_pad = dispatch("stack", "npu", slices, dim=d)
+                out = dispatch("cat", "npu", [out, right_pad], dim=d)
+        elif mode == 'replicate':
+            if left > 0:
+                edge = dispatch("select", "npu", out, d, 0)
+                edge = edge.unsqueeze(d)
+                left_pad = edge.expand(*[out.shape[k] if k != d else left for k in range(out.dim())])
+                out = dispatch("cat", "npu", [left_pad, out], dim=d)
+            if right > 0:
+                edge = dispatch("select", "npu", out, d, out.shape[d] - 1)
+                edge = edge.unsqueeze(d)
+                right_pad = edge.expand(*[out.shape[k] if k != d else right for k in range(out.dim())])
+                out = dispatch("cat", "npu", [out, right_pad], dim=d)
+        elif mode == 'circular':
+            if left > 0:
+                left_pad = dispatch("narrow", "npu", out, d, dim_size - left, left)
+                out = dispatch("cat", "npu", [left_pad, out], dim=d)
+            if right > 0:
+                right_pad = dispatch("narrow", "npu", out, d, 0, right)
+                out = dispatch("cat", "npu", [out, right_pad], dim=d)
+        else:
+            raise NotImplementedError(f"NPU pad mode '{mode}' is not supported")
+    return out
 
 
 def ctc_loss_op(log_probs, targets, input_lengths, target_lengths,
