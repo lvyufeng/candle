@@ -85,7 +85,7 @@ def generate_report(candle_results, torch_results, op_names, dtype_keys, scen_ke
 
             if ratios:
                 avg = sum(ratios) / len(ratios)
-                worst_idx = max(range(len(ratios)), key=lambda i: ratios[i])
+                worst_idx = max(range(len(ratios)), key=ratios.__getitem__)
                 # Find which op corresponds to worst
                 valid_ops = []
                 for op in op_names:

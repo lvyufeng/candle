@@ -50,7 +50,7 @@ def _run_worker(framework, args):
     print(f"Running {framework} worker (env={env_name})...", file=sys.stderr)
     proc = subprocess.run(
         ["bash", "-c", shell_cmd],
-        capture_output=True, text=True, timeout=1800,
+        capture_output=True, text=True, timeout=1800, check=False,
     )
 
     if proc.stderr:

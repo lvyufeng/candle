@@ -21,7 +21,7 @@ def _get_framework(framework):
         return torch_mod, F, sync, device
     elif framework == "torch":
         import torch as torch_mod
-        import torch_npu  # noqa: F401
+        import torch_npu  # noqa: F401  # pylint: disable=import-error
         import torch.nn.functional as F
         device = "npu"
         sync = torch_mod.npu.synchronize
