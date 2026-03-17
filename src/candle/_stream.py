@@ -471,6 +471,34 @@ class PyTorchStreamReader:
             extra_len = _read_le16(header, _LFH_EXTRA_LEN_OFS)
             return header_offset + _LFH_SIZE + filename_len + extra_len
 
+    def getRecordHeaderOffset(self, name: str) -> int:
+        """Return the local file header offset for the named record."""
+        info = self._get_record_id(name)
+        return info.header_offset
+
+    def getRecordOffsetNoRead(
+        self,
+        zipfile_header_offset: int,
+        filename: str,
+        size: int,
+        storage_alignment: int,
+    ) -> int:
+        """Compute the data offset without reading the local file header.
+
+        Mirrors the C++ ``getRecordOffsetNoRead`` used for mmap fast-path.
+        """
+        full_name = self._archive_name_plus_slash + filename
+        full_name_len = len(full_name.encode('utf-8'))
+        # Base offset past the fixed-size local file header and filename
+        data_start = zipfile_header_offset + _LFH_SIZE + full_name_len
+        # Account for alignment padding in the extra field
+        if storage_alignment > 0 and size > 0:
+            padding = (storage_alignment - data_start % storage_alignment) % storage_alignment
+            # ZIP64 extra field header (4 bytes tag+size) may precede padding
+            # but for the no-read fast path we just add the padding
+            data_start += padding
+        return data_start
+
     def hasRecord(self, name: str) -> bool:
         """Return whether the archive contains the named record."""
         with self._lock:
@@ -880,3 +908,79 @@ def _hash_combine(seed: int, value: int) -> int:
     seed = seed & 0xFFFFFFFFFFFFFFFF
     seed ^= (value + 0x9E3779B9 + (seed << 6) + (seed >> 2)) & 0xFFFFFFFFFFFFFFFF
     return seed
+
+
+# ── PyTorchFileReader (pybind-compatible snake_case API) ─────────────
+
+class PyTorchFileReader:
+    """Drop-in replacement for the ``torch._C.PyTorchFileReader`` pybind class.
+
+    Wraps :class:`PyTorchStreamReader` and exposes the same snake_case
+    methods that the C++ pybind11 bindings register.
+    """
+
+    def __init__(self, file_name_or_buffer):
+        if isinstance(file_name_or_buffer, str):
+            self._reader = PyTorchStreamReader(file_name_or_buffer)
+        else:
+            self._reader = PyTorchStreamReader(file_name_or_buffer)
+
+    def get_record(self, key: str) -> bytes:
+        data, _ = self._reader.getRecord(key)
+        return data
+
+    def has_record(self, key: str) -> bool:
+        return self._reader.hasRecord(key)
+
+    def get_storage_from_record(self, key: str, numel: int, dtype) -> "Tensor":
+        """Read a storage record and return it as a Tensor.
+
+        *dtype* can be a candle DType or any object with a ``.itemsize``
+        attribute (e.g. ``numpy.dtype``).
+        """
+        from ._dtype import to_numpy_dtype, DType
+        from ._storage import typed_storage_from_numpy
+        from ._tensor import Tensor
+        import numpy as np
+
+        data, size = self._reader.getRecord(key)
+
+        if isinstance(dtype, DType):
+            np_dtype = np.dtype(to_numpy_dtype(dtype))
+        else:
+            np_dtype = np.dtype(dtype)
+
+        expected = numel * np_dtype.itemsize
+        if size != expected:
+            raise RuntimeError(
+                f"record size ({size} bytes) does not match expected size "
+                f"({expected} bytes = {numel} elements * "
+                f"{np_dtype.itemsize} bytes/element) for dtype {np_dtype}"
+            )
+
+        arr = np.frombuffer(data, dtype=np_dtype, count=numel).copy()
+        storage = typed_storage_from_numpy(arr, dtype, device="cpu")
+        return Tensor(storage, (numel,), (1,))
+
+    def serialization_id(self) -> str:
+        return self._reader.serializationId()
+
+    def get_all_records(self) -> List[str]:
+        return self._reader.getAllRecords()
+
+    def get_record_offset(self, key: str) -> int:
+        return self._reader.getRecordOffset(key)
+
+    def get_record_header_offset(self, key: str) -> int:
+        return self._reader.getRecordHeaderOffset(key)
+
+    def get_record_offset_no_read(
+        self,
+        zipfile_header_offset: int,
+        filename: str,
+        size: int,
+        storage_alignment: int,
+    ) -> int:
+        return self._reader.getRecordOffsetNoRead(
+            zipfile_header_offset, filename, size, storage_alignment,
+        )
