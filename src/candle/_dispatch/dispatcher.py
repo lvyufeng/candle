@@ -172,9 +172,9 @@ class _PendingOp:
             pending._base = None
             pending._view_meta = None
 
-        result_version = result._version_counter
-        if pending._version_counter is not result_version:
-            pending._version_counter = result_version
+        result_version = result._version_value
+        if pending._version_value != result_version:
+            pending._version_value = result_version
         pending._pending = False
 
     def _execute_body(self):
@@ -548,16 +548,27 @@ def dispatch(name, dispatch_device, *args, **kwargs):
     return dispatch_with_keyset(name, keyset, dispatch_device, *args, **kwargs)
 
 
+# Save original Python implementation for fallback reference
+_py_dispatch_with_keyset = dispatch_with_keyset
+
+
 def redispatch(name, keyset, *args, **kwargs):
     return dispatch_with_keyset(name, keyset, None, *args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
-# Cython fast-path: replace dispatch() if Cython extension is available.
-# Only dispatch() is replaced — it builds the keyset faster in C, then calls
-# the original Python dispatch_with_keyset() for the full dispatch logic.
+# Cython fast-path: replace dispatch() and helpers if Cython extension is
+# available.  These must come AFTER the Python definitions so they override.
 # ---------------------------------------------------------------------------
 try:
     from .._cython._dispatch import cy_dispatch as dispatch  # noqa: F811
+    from .._cython._dispatch import cy_prepare_kwargs as _prepare_kwargs  # noqa: F811
+    from .._cython._dispatch import cy_extract_tensors as _extract_tensors  # noqa: F811
 except ImportError:
-    pass  # keep existing Python dispatch
+    pass  # keep existing Python versions
+
+# Full dispatcher core: replace dispatch_with_keyset if Cython available
+try:
+    from .._cython._dispatcher_core import cy_dispatch_with_keyset_fast as dispatch_with_keyset  # noqa: F811
+except ImportError:
+    pass  # keep existing Python version
