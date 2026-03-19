@@ -15,6 +15,28 @@ from ...._tensor import Tensor
 from .. import accelerate as _accel
 
 # ---------------------------------------------------------------------------
+# Cython hot-path (optional — falls back to pure-Python below)
+# ---------------------------------------------------------------------------
+try:
+    from candle._cython._mps_helpers import (  # pylint: disable=import-error,no-name-in-module
+        can_use_gpu as _cy_can_use_gpu,
+        dispatch_unary_gpu as _cy_dispatch_unary_gpu,
+        dispatch_unary_predicate_gpu as _cy_dispatch_unary_predicate_gpu,
+        dispatch_binary_gpu as _cy_dispatch_binary_gpu,
+        from_metal_buffer as _cy_from_metal_buffer,
+        alloc_output_buf as _cy_alloc_output_buf,
+        get_metal_buf as _cy_get_metal_buf,
+        kernel_suffix as _cy_kernel_suffix,
+        scalar_fmt as _cy_scalar_fmt,
+        itemsize as _cy_itemsize,
+        compute_reduce_dims as _cy_compute_reduce_dims,
+        reduce_shape as _cy_reduce_shape,
+    )
+    _CYTHON_AVAILABLE = True
+except ImportError:
+    _CYTHON_AVAILABLE = False
+
+# ---------------------------------------------------------------------------
 # GPU dispatch helpers
 # ---------------------------------------------------------------------------
 _GPU_DTYPES = frozenset({float32_dtype, float16_dtype, int32_dtype, int64_dtype, bool_dtype})
@@ -22,6 +44,8 @@ _GPU_DTYPES = frozenset({float32_dtype, float16_dtype, int32_dtype, int64_dtype,
 
 def _can_use_gpu(t):
     """Check if tensor can use Metal GPU kernels."""
+    if _CYTHON_AVAILABLE:
+        return _cy_can_use_gpu(t)
     return (t.dtype in _GPU_DTYPES
             and t.numel() > 0
             and hasattr(t._storage, '_untyped')
@@ -48,11 +72,15 @@ def _unsupported_dtype(op_name, t):
 
 def _metal_buf(t):
     """Get the raw Metal buffer from a tensor."""
+    if _CYTHON_AVAILABLE:
+        return _cy_get_metal_buf(t)
     return t._storage._untyped._metal_buffer
 
 
 def _kernel_suffix(dtype):
     """Return MSL kernel suffix for dtype."""
+    if _CYTHON_AVAILABLE:
+        return _cy_kernel_suffix(dtype)
     _SUFFIX = {
         float32_dtype: "f32", float16_dtype: "f16",
         int32_dtype: "i32", int64_dtype: "i64",
@@ -63,6 +91,8 @@ def _kernel_suffix(dtype):
 
 def _scalar_fmt(dtype):
     """Return struct format char for scalar encoding."""
+    if _CYTHON_AVAILABLE:
+        return _cy_scalar_fmt(dtype)
     _FMT = {
         float32_dtype: "f", float16_dtype: "e",
         int32_dtype: "i", int64_dtype: "q",
@@ -73,6 +103,8 @@ def _scalar_fmt(dtype):
 
 def _itemsize(dtype):
     """Return byte size per element."""
+    if _CYTHON_AVAILABLE:
+        return _cy_itemsize(dtype)
     _SIZES = {
         float32_dtype: 4, float16_dtype: 2,
         int32_dtype: 4, int64_dtype: 8,
@@ -83,6 +115,8 @@ def _itemsize(dtype):
 
 def _alloc_output_buf(numel, dtype):
     """Allocate a Metal buffer for output."""
+    if _CYTHON_AVAILABLE:
+        return _cy_alloc_output_buf(numel, dtype)
     from ..runtime import get_runtime
     rt = get_runtime()
     return rt.create_buffer(numel * _itemsize(dtype))
@@ -110,6 +144,8 @@ def _read_scalar(t):
 
 def _from_metal_buffer(metal_buf, shape, stride, dtype, device):
     """Wrap an existing Metal buffer into a Tensor without copying data."""
+    if _CYTHON_AVAILABLE:
+        return _cy_from_metal_buffer(metal_buf, tuple(shape), tuple(stride), dtype, device)
     from ..runtime import buffer_contents
     nbytes = 1
     for s in shape:
@@ -139,6 +175,8 @@ def _get_dispatcher():
 
 def _dispatch_unary_gpu(a, kernel_base):
     """Dispatch a unary GPU kernel, choosing contiguous or strided variant."""
+    if _CYTHON_AVAILABLE:
+        return _cy_dispatch_unary_gpu(a, kernel_base)
     d = _get_dispatcher()
     sfx = _kernel_suffix(a.dtype)
     numel = a.numel()
@@ -157,6 +195,8 @@ def _dispatch_unary_gpu(a, kernel_base):
 
 def _dispatch_unary_predicate_gpu(a, kernel_base):
     """Dispatch a unary predicate GPU kernel (float → bool), contiguous or strided."""
+    if _CYTHON_AVAILABLE:
+        return _cy_dispatch_unary_predicate_gpu(a, kernel_base)
     d = _get_dispatcher()
     sfx = _kernel_suffix(a.dtype)
     numel = a.numel()
@@ -182,6 +222,8 @@ def _scalar_value(val, dtype):
 
 def _dispatch_binary_gpu(a, b, kernel_base):
     """Dispatch a binary GPU kernel, choosing contiguous or strided variant."""
+    if _CYTHON_AVAILABLE:
+        return _cy_dispatch_binary_gpu(a, b, kernel_base)
     d = _get_dispatcher()
     sfx = _kernel_suffix(a.dtype)
     numel = a.numel()
@@ -219,6 +261,8 @@ def _to_numpy(t):
 
 def _compute_reduce_dims(shape, dim):
     """Compute (outer_size, reduce_size, inner_size) for axis reduction."""
+    if _CYTHON_AVAILABLE:
+        return _cy_compute_reduce_dims(tuple(shape), dim)
     ndim = len(shape)
     if isinstance(dim, int):
         dim = (dim,)
@@ -226,7 +270,6 @@ def _compute_reduce_dims(shape, dim):
     outer = 1
     reduce = 1
     inner = 1
-    # Find contiguous range or single dim
     sorted_dims = sorted(dims)
     for i in range(ndim):
         if i < sorted_dims[0]:
@@ -240,6 +283,8 @@ def _compute_reduce_dims(shape, dim):
 
 def _reduce_shape(shape, dim, keepdim):
     """Compute output shape after reduction."""
+    if _CYTHON_AVAILABLE:
+        return _cy_reduce_shape(tuple(shape), dim, keepdim)
     ndim = len(shape)
     if isinstance(dim, int):
         dim = (dim,)
