@@ -12,7 +12,7 @@ from ...._storage import mps_typed_storage_from_numpy, _MPSUntypedStorage, Typed
 from ...._tensor import Tensor
 from .. import accelerate as _accel
 
-from candle._cython._mps_helpers import (
+from candle._cython._mps_helpers import (  # pylint: disable=import-error,no-name-in-module
     can_use_gpu as _cy_can_use_gpu,
     dispatch_unary_gpu as _cy_dispatch_unary_gpu,
     dispatch_unary_predicate_gpu as _cy_dispatch_unary_predicate_gpu,
