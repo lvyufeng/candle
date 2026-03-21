@@ -122,9 +122,15 @@ def _unsqueeze_to_backward_helper(grad, dim, input_sizes, keyset):
 
 def _sum_to_backward_helper(grad, size, keyset):
     target_shape = tuple(size)
+    if tuple(grad.shape) == target_shape:
+        return grad
     result = grad
-    while len(result.shape) > len(target_shape):
-        result = redispatch("sum", keyset, result, dim=0, keepdim=False)
+    # Reduce extra leading dimensions
+    n_extra = len(result.shape) - len(target_shape)
+    if n_extra > 0:
+        dims = tuple(range(n_extra))
+        result = redispatch("sum", keyset, result, dim=dims, keepdim=False)
+    # Reduce broadcast dimensions (size-1 dims)
     for i, (g_dim, s_dim) in enumerate(zip(result.shape, target_shape)):
         if s_dim == 1 and g_dim != 1:
             result = redispatch("sum", keyset, result, dim=i, keepdim=True)
@@ -7758,8 +7764,8 @@ class MulTensorBackward0(Node):
         with _grad_context(keyset):
             _self_dtype = self_.dtype if hasattr(self_, 'dtype') else grad.dtype
             _other_dtype = other.dtype if hasattr(other, 'dtype') else grad.dtype
-            grad_self = _mul_tensor_backward_helper(grad, other, _self_dtype, keyset)
-            grad_other = _mul_tensor_backward_helper(grad, self_, _other_dtype, keyset)
+            grad_self = _sum_to_backward_helper(_mul_tensor_backward_helper(grad, other, _self_dtype, keyset), self_.shape if hasattr(self_, 'shape') else (), keyset)
+            grad_other = _sum_to_backward_helper(_mul_tensor_backward_helper(grad, self_, _other_dtype, keyset), other.shape if hasattr(other, 'shape') else (), keyset)
         return (grad_self, grad_other,)
 
 class MulScalarBackward0(Node):
