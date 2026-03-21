@@ -603,12 +603,8 @@ def meta_typed_storage_from_size(size, dtype, device=None):
 
 
 def npu_typed_storage_from_ptr(device_ptr, size, dtype, device=None):
-    itemsize = np.dtype(to_numpy_dtype(dtype)).itemsize
-    untyped = _NPUUntypedStorage(device_ptr, int(size) * itemsize, device=device)
-    return TypedStorage(untyped, dtype, int(size))
-
-
-from ._cython._storage import cy_npu_storage_from_ptr as npu_typed_storage_from_ptr  # noqa: F811
+    from ._cython._storage import cy_npu_storage_from_ptr  # pylint: disable=import-error,no-name-in-module
+    return cy_npu_storage_from_ptr(device_ptr, size, dtype, device=device)
 
 
 def mps_typed_storage_from_numpy(arr, dtype, device=None):

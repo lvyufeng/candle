@@ -5,12 +5,11 @@ from ._backends.npu.runtime import device_count
 from ._backends.npu.streams import Event, Stream
 from ._device import device as Device
 
-from ._cython._npu_ops import cy_npu_synchronize as _cy_npu_sync  # pylint: disable=import-error,no-name-in-module
-
 _MEMORY_FRACTION = None
 _NPU_INITIALIZED = False
 
 _default_generators = {}  # device_index -> Generator
+_cy_npu_sync = None  # lazy hard-import cache; absence is an error at use-time
 
 
 def _get_default_generator(device_index=0):
@@ -110,33 +109,44 @@ def _get_allocator(device=None):
 
 
 def synchronize(device=None):
-    if _cy_npu_sync is not None:
-        # Never use the fast path while the current stream is under aclgraph capture.
-        try:
-            if not is_current_stream_capturing():
-                # Fast path for the common cases without constructing a fresh Device.
-                if device is None:
-                    _set_initialized()
-                    _cy_npu_sync(npu_state.current_device())
-                    return
-                if isinstance(device, int):
-                    _set_initialized()
-                    _cy_npu_sync(device)
-                    return
-                if isinstance(device, Device):
-                    _set_initialized()
-                    _cy_npu_sync(device.index or npu_state.current_device())
-                    return
-                dev_index = getattr(device, "index", None)
-                if dev_index is not None:
-                    _set_initialized()
-                    _cy_npu_sync(int(dev_index))
-                    return
-        except Exception:
-            # Fall back to the original path on any fast-path guard failure.
-            pass
+    global _cy_npu_sync
+    # Hard-require the Cython fast sync path, but import it lazily so `import candle`
+    # remains cross-platform safe until an actual NPU API is used.
+    if _cy_npu_sync is None:
+        from ._cython._npu_ops import cy_npu_synchronize as _sync  # pylint: disable=import-error,no-name-in-module
+        _cy_npu_sync = _sync
 
-    # Fallback: original path (preserves full device normalization semantics)
+    # During aclgraph capture we must preserve the full runtime path.
+    if is_current_stream_capturing():
+        from ._backends.npu import runtime as npu_runtime
+        dev = _normalize_npu_device(device)
+        runtime = npu_runtime.get_runtime(dev.index or 0)
+        _set_initialized()
+        runtime.synchronize()
+        return
+
+    # Fast path with explicit, torch-like selector handling.
+    if device is None:
+        _set_initialized()
+        _cy_npu_sync(npu_state.current_device())
+        return
+    if isinstance(device, int):
+        _set_initialized()
+        _cy_npu_sync(device)
+        return
+    if isinstance(device, Device):
+        _set_initialized()
+        _cy_npu_sync(device.index or npu_state.current_device())
+        return
+    # Strings and other string-like selectors should keep full normalization semantics.
+    if not isinstance(device, str):
+        dev_index = getattr(device, "index", None)
+        if dev_index is not None and not callable(dev_index):
+            _set_initialized()
+            _cy_npu_sync(int(dev_index))
+            return
+
+    # Strings / unusual selectors still go through full normalization semantics.
     from ._backends.npu import runtime as npu_runtime
     dev = _normalize_npu_device(device)
     runtime = npu_runtime.get_runtime(dev.index or 0)
