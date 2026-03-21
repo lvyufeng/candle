@@ -1,5 +1,6 @@
 # cython: language_level=3, boundscheck=False, wraparound=False
-"""Cython-owned autograd node runtime."""
+import weakref
+_METADATA_BY_NODE = weakref.WeakKeyDictionary()
 
 _RELEASED_SAVED_TENSORS_ERROR = (
     "Trying to backward through the graph a second time (or directly access saved tensors after they have already been freed). "
@@ -56,6 +57,7 @@ cdef class SavedTensor:
                 self._packed = None
             else:
                 self._packed = pack(tensor)
+
 
     def register_hooks(self, *args):
         cdef object pack
@@ -186,9 +188,11 @@ cdef class AccumulateGrad:
 
     @property
     def metadata(self):
-        if self._metadata is None:
-            self._metadata = {}
-        return self._metadata
+        meta = _METADATA_BY_NODE.get(self)
+        if meta is None:
+            meta = {}
+            _METADATA_BY_NODE[self] = meta
+        return meta
 
     def name(self):
         return self._name
@@ -228,22 +232,44 @@ cdef class Node:
 
     def save_for_backward(self, *tensors):
         cdef list saved = []
+        cdef dict seen = {}
         cdef object t
+        cdef object tid
+        cdef object cached
         for t in tensors:
             if t is None:
                 saved.append(SavedTensor(None))
             elif hasattr(t, "_version_counter"):
-                saved.append(SavedTensor(t))
+                tid = id(t)
+                cached = seen.get(tid)
+                if cached is None:
+                    cached = SavedTensor(t)
+                    seen[tid] = cached
+                saved.append(cached)
             else:
                 saved.append(_SavedValue(t))
         self._saved_tensors_list = saved
 
     def saved_tensors(self):
         cdef object saved
+        cdef dict seen_materialized = {}
+        cdef object key
+        cdef object materialized
         for saved in self._saved_tensors_list:
             if getattr(saved, "_released", False):
                 raise RuntimeError(_RELEASED_SAVED_TENSORS_ERROR)
-        return tuple(saved.materialize() for saved in self._saved_tensors_list)
+        out = []
+        for saved in self._saved_tensors_list:
+            if isinstance(saved, SavedTensor):
+                key = id(saved)
+                materialized = seen_materialized.get(key)
+                if materialized is None:
+                    materialized = saved.materialize()
+                    seen_materialized[key] = materialized
+                out.append(materialized)
+            else:
+                out.append(saved.materialize())
+        return tuple(out)
 
     def release_saved_tensors(self):
         cdef object saved
@@ -294,9 +320,11 @@ cdef class Node:
         cdef str key
         cdef object saved
         if name == "metadata":
-            if self._metadata is None:
-                self._metadata = {}
-            return self._metadata
+            meta = _METADATA_BY_NODE.get(self)
+            if meta is None:
+                meta = {}
+                _METADATA_BY_NODE[self] = meta
+            return meta
         if name == "_raw_saved_tensors":
             return tuple(self._saved_tensors_list)
         if name == "_saved_tensors":
@@ -304,7 +332,19 @@ cdef class Node:
             for saved in saved_tensors:
                 if getattr(saved, "_released", False):
                     raise RuntimeError(_RELEASED_SAVED_TENSORS_ERROR)
-            return tuple(saved.materialize() for saved in saved_tensors)
+            seen_materialized = {}
+            out = []
+            for saved in saved_tensors:
+                if isinstance(saved, SavedTensor):
+                    saved_id = id(saved)
+                    materialized = seen_materialized.get(saved_id)
+                    if materialized is None:
+                        materialized = saved.materialize()
+                        seen_materialized[saved_id] = materialized
+                    out.append(materialized)
+                else:
+                    out.append(saved.materialize())
+            return tuple(out)
         if name.startswith(_RAW_SAVED_FIELD_PREFIX):
             key = name[len(_RAW_SAVED_FIELD_PREFIX):]
             if key in self._saved_fields:

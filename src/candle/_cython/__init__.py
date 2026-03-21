@@ -94,16 +94,19 @@ try:
 except ImportError:
     pass
 
-from ._autograd_node import (  # pylint: disable=import-error,no-name-in-module
-    AccumulateGrad,  # noqa: F401
-    FastNode,  # noqa: F401
-    InputMetadata,  # noqa: F401
-    Node,  # noqa: F401
-    SavedTensor,  # noqa: F401
-    _NodeHookHandle,  # noqa: F401
-    _SavedValue,  # noqa: F401
-)
-_HAS_CYTHON_AUTOGRAD_NODE = True
+try:
+    from ._autograd_node import (  # pylint: disable=import-error,no-name-in-module
+        AccumulateGrad,  # noqa: F401
+        FastNode,  # noqa: F401
+        InputMetadata,  # noqa: F401
+        Node,  # noqa: F401
+        SavedTensor,  # noqa: F401
+        _NodeHookHandle,  # noqa: F401
+        _SavedValue,  # noqa: F401
+    )
+    _HAS_CYTHON_AUTOGRAD_NODE = True
+except ImportError:
+    _HAS_CYTHON_AUTOGRAD_NODE = False
 
 from ._autograd_graph import (  # noqa: F401  # pylint: disable=import-error,no-name-in-module
     GradientEdge,
