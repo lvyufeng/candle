@@ -185,10 +185,22 @@ def _require_int64_indices(indices, name):
     return indices
 
 
+def _use_310b_int64_index_compare_workaround(indices):
+    return indices.dtype == int64_dtype and ops_soc.capability("use_safe_int64_index_compare")
+
+
 def _validate_index_bounds(indices, dim_size, allow_negative, name):
     from .comparison import lt, gt
-    from .reduce import any_
+    from .reduce import any_, amin, amax
     if indices.numel() == 0:
+        return
+    if _use_310b_int64_index_compare_workaround(indices):
+        lower = -int(dim_size) if allow_negative else 0
+        upper = int(dim_size - 1)
+        min_val = _read_int64_scalar(amin(indices))
+        max_val = _read_int64_scalar(amax(indices))
+        if min_val < lower or max_val > upper:
+            raise IndexError(f"{name} indices out of range")
         return
     if allow_negative:
         min_ok = _scalar_to_npu_tensor(-int(dim_size), indices)
@@ -202,44 +214,58 @@ def _validate_index_bounds(indices, dim_size, allow_negative, name):
         raise IndexError(f"{name} indices out of range")
 
 
+def _blend_negative_indices(indices, neg_mask, dim_size):
+    from .math import add, mul
+
+    if not aclnn.cast_symbols_ok():
+        raise RuntimeError("aclnnCast symbols not available")
+    runtime = npu_runtime.get_runtime((indices.device.index or 0))
+    stream = npu_state.current_stream((indices.device.index or 0))
+
+    shape = tuple(indices.shape)
+    stride = tuple(indices.stride)
+    numel = max(_numel(shape), 1)
+
+    mask_i64_ptr = npu_runtime._alloc_device(numel * _dtype_itemsize(int64_dtype), runtime=runtime)
+    aclnn.cast(
+        _unwrap_storage(neg_mask).data_ptr(),
+        mask_i64_ptr,
+        shape,
+        stride,
+        bool_dtype,
+        int64_dtype,
+        runtime,
+        stream=stream.stream,
+    )
+    mask_i64_storage = npu_typed_storage_from_ptr(mask_i64_ptr, numel, int64_dtype, device=indices.device)
+    mask_i64 = _wrap_tensor(mask_i64_storage, shape, stride)
+
+    offset = _scalar_to_npu_tensor(int(dim_size), indices)
+    return add(indices, mul(mask_i64, offset))
+
+
 def _normalize_negative_indices(indices, dim_size):
     from .comparison import lt
-    from .reduce import any_
-    from .math import add, mul
+    from .reduce import any_, amin
+    from .math import add
+    if _use_310b_int64_index_compare_workaround(indices):
+        min_val = _read_int64_scalar(amin(indices))
+        if min_val >= 0:
+            return indices
+        idx_f = _cast_tensor_dtype(indices, float_dtype)
+        neg_mask = lt(idx_f, _scalar_to_npu_tensor(0.0, idx_f))
+        return _blend_negative_indices(indices, neg_mask, dim_size)
     neg_mask = lt(indices, _scalar_to_npu_tensor(0, indices))
     if not _read_bool_scalar(any_(neg_mask)):
         return indices
 
     # 310B static path: avoid SWhere by converting mask to int64 and blending arithmetically.
     if _use_soc_fallback("take_along_dim"):
-        if not aclnn.cast_symbols_ok():
-            raise RuntimeError("aclnnCast symbols not available")
-        runtime = npu_runtime.get_runtime((indices.device.index or 0))
-        stream = npu_state.current_stream((indices.device.index or 0))
-
-        shape = tuple(indices.shape)
-        stride = tuple(indices.stride)
-        numel = max(_numel(shape), 1)
-
-        mask_i64_ptr = npu_runtime._alloc_device(numel * _dtype_itemsize(int64_dtype), runtime=runtime)
-        aclnn.cast(
-            _unwrap_storage(neg_mask).data_ptr(),
-            mask_i64_ptr,
-            shape,
-            stride,
-            bool_dtype,
-            int64_dtype,
-            runtime,
-            stream=stream.stream,
-        )
-        mask_i64_storage = npu_typed_storage_from_ptr(mask_i64_ptr, numel, int64_dtype, device=indices.device)
-        mask_i64 = _wrap_tensor(mask_i64_storage, shape, stride)
-
-        offset = _scalar_to_npu_tensor(int(dim_size), indices)
-        return add(indices, mul(mask_i64, offset))
+        return _blend_negative_indices(indices, neg_mask, dim_size)
 
     from . import where
     return where(neg_mask, add(indices, _scalar_to_npu_tensor(int(dim_size), indices)), indices)
+
 
 
 def _npu_data_ptr(tensor):
