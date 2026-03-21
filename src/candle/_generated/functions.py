@@ -2033,20 +2033,7 @@ class AcoshBackward0(Node):
         _saved = self.saved_tensors()
         self_ = _saved[self._saved_self_idx]
         with _grad_context(keyset):
-            grad_self = (redispatch("mul", keyset, grad, redispatch("mul", keyset, redispatch("rsqrt", keyset, redispatch("add", keyset, self_, 1)), redispatch("rsqrt", keyset, redispatch("sub", keyset, self_, 1)))) if redispatch("is_complex", keyset, self_) else redispatch("mul", keyset, grad, redispatch("rsqrt", keyset, redispatch("sub", keyset, redispatch("mul", keyset, self_, self_), 1))))
-        return (grad_self,)
-
-class AcoshBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='AcoshBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        with _grad_context(keyset):
-            grad_self = _raise_not_implemented("inplace version of acosh")
+            grad_self = (redispatch("mul", keyset, grad, redispatch("mul", keyset, redispatch("rsqrt", keyset, redispatch("add", keyset, self_, 1)), redispatch("rsqrt", keyset, redispatch("sub", keyset, self_, 1)))) if False else redispatch("mul", keyset, grad, redispatch("rsqrt", keyset, redispatch("sub", keyset, redispatch("mul", keyset, self_, self_), 1))))
         return (grad_self,)
 
 class AsinhBackward0(Node):
@@ -2075,19 +2062,6 @@ class AsinhBackward0(Node):
             grad_self = redispatch("mul", keyset, grad, redispatch("rsqrt", keyset, redispatch("add", keyset, redispatch("pow", keyset, self_, 2), 1)))
         return (grad_self,)
 
-class AsinhBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='AsinhBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        with _grad_context(keyset):
-            grad_self = _raise_not_implemented("inplace version of asinh")
-        return (grad_self,)
-
 class AtanhBackward0(Node):
     def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
         super().__init__(None, inputs, name='AtanhBackward0')
@@ -2112,51 +2086,6 @@ class AtanhBackward0(Node):
         self_ = _saved[self._saved_self_idx]
         with _grad_context(keyset):
             grad_self = redispatch("mul", keyset, grad, redispatch("div", keyset, 1, redispatch("sub", keyset, 1, redispatch("pow", keyset, self_, 2))))
-        return (grad_self,)
-
-class AtanhBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='AtanhBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        with _grad_context(keyset):
-            grad_self = _raise_not_implemented("inplace version of atanh")
-        return (grad_self,)
-
-class AsStridedBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='AsStridedBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._saved_self_idx = None
-        self._size = None
-        self._stride = None
-        self._storage_offset = None
-
-    def _save(self, *, self_=None):
-        tensors = []
-        if self_ is not None:
-            self._saved_self_idx = len(tensors)
-            tensors.append(self_)
-        if tensors:
-            super().save_for_backward(*tensors)
-        if self._saved_self_idx is not None:
-            self._saved_fields['self'] = self._saved_tensors_list[self._saved_self_idx]
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        _saved = self.saved_tensors()
-        self_ = _saved[self._saved_self_idx]
-        size = self._size
-        stride = self._stride
-        storage_offset = self._storage_offset
-        with _grad_context(keyset):
-            grad_self = _as_strided_backward_helper(grad, self_, size, stride, storage_offset, keyset)
         return (grad_self,)
 
 class AsStridedBackward0(Node):
@@ -2274,7 +2203,9 @@ class Atan2Backward0(Node):
         self_ = _saved[self._saved_self_idx]
         grad_input_mask = [True, True]
         with _grad_context(keyset):
-            grad_self, grad_other = redispatch("atan2_backward", keyset, grad, self_, other, grad_input_mask)
+            _denom = redispatch("add", keyset, redispatch("mul", keyset, self_, self_), redispatch("mul", keyset, other, other))
+            grad_self = redispatch("div", keyset, redispatch("mul", keyset, grad, other), _denom) if grad_input_mask[0] else None
+            grad_other = redispatch("neg", keyset, redispatch("div", keyset, redispatch("mul", keyset, grad, self_), _denom)) if grad_input_mask[1] else None
         return (grad_self, grad_other,)
 
 class BaddbmmBackward0(Node):
@@ -2731,7 +2662,7 @@ class ClampMinBackward0(Node):
         self_ = _saved[self._saved_self_idx]
         min = self._min
         with _grad_context(keyset):
-            grad_self = redispatch("where", keyset, redispatch("ge", keyset, self_, min), grad, redispatch("scalar_tensor", keyset, 0., grad.options))
+            grad_self = redispatch("where", keyset, redispatch("ge", keyset, self_, min), grad, _scalar_tensor_like(grad, 0.))
         return (grad_self,)
 
 class ClampMinTensorBackward0(Node):
@@ -2764,8 +2695,8 @@ class ClampMinTensorBackward0(Node):
         min = _saved[self._saved_min_idx]
         self_ = _saved[self._saved_self_idx]
         with _grad_context(keyset):
-            grad_self = redispatch("where", keyset, redispatch("ge", keyset, self_, min), grad, redispatch("scalar_tensor", keyset, 0., grad.options))
-            grad_min = redispatch("where", keyset, redispatch("lt", keyset, self_, min), grad, redispatch("scalar_tensor", keyset, 0., grad.options))
+            grad_self = redispatch("where", keyset, redispatch("ge", keyset, self_, min), grad, _scalar_tensor_like(grad, 0.))
+            grad_min = redispatch("where", keyset, redispatch("lt", keyset, self_, min), grad, _scalar_tensor_like(grad, 0.))
         return (grad_self, grad_min,)
 
 class ClampMaxBackward0(Node):
@@ -2793,7 +2724,7 @@ class ClampMaxBackward0(Node):
         self_ = _saved[self._saved_self_idx]
         max = self._max
         with _grad_context(keyset):
-            grad_self = redispatch("where", keyset, redispatch("le", keyset, self_, max), grad, redispatch("scalar_tensor", keyset, 0., grad.options))
+            grad_self = redispatch("where", keyset, redispatch("le", keyset, self_, max), grad, _scalar_tensor_like(grad, 0.))
         return (grad_self,)
 
 class ClampMaxTensorBackward0(Node):
@@ -2826,8 +2757,8 @@ class ClampMaxTensorBackward0(Node):
         max = _saved[self._saved_max_idx]
         self_ = _saved[self._saved_self_idx]
         with _grad_context(keyset):
-            grad_self = redispatch("where", keyset, redispatch("le", keyset, self_, max), grad, redispatch("scalar_tensor", keyset, 0., grad.options))
-            grad_max = redispatch("where", keyset, redispatch("gt", keyset, self_, max), grad, redispatch("scalar_tensor", keyset, 0., grad.options))
+            grad_self = redispatch("where", keyset, redispatch("le", keyset, self_, max), grad, _scalar_tensor_like(grad, 0.))
+            grad_max = redispatch("where", keyset, redispatch("gt", keyset, self_, max), grad, _scalar_tensor_like(grad, 0.))
         return (grad_self, grad_max,)
 
 class CloneBackward0(Node):
@@ -2893,7 +2824,7 @@ class ToCopyBackward0(Node):
         non_blocking = self._non_blocking
         memory_format = self._memory_format
         with _grad_context(keyset):
-            grad_self = redispatch("_to_copy_backward", keyset, grad, self_.options)
+            grad_self = redispatch("contiguous", keyset, grad)
         return (grad_self,)
 
 class CoalesceBackward0(Node):
@@ -2993,19 +2924,6 @@ class NegViewBackward0(Node):
         keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
         with _grad_context(keyset):
             grad_self = redispatch("neg", keyset, grad)
-        return (grad_self,)
-
-class ConjPhysicalBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='ConjPhysicalBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        with _grad_context(keyset):
-            grad_self = redispatch("conj_physical", keyset, grad)
         return (grad_self,)
 
 class ConjPhysicalBackward0(Node):
@@ -3280,7 +3198,7 @@ class CumprodBackward0(Node):
         dim = self._dim
         dtype = self._dtype
         with _grad_context(keyset):
-            grad_self = redispatch("cumprod_backward", keyset, redispatch("to", keyset, grad, self_.dtype), self_, dim, result)
+            grad_self = _cumprod_backward_helper(grad, self_, dim, result, keyset)
         return (grad_self,)
 
 class CumsumBackward0(Node):
@@ -3343,7 +3261,10 @@ class CummaxBackward0(Node):
         indices = _saved[self._saved_indices_idx]
         dim = self._dim
         with _grad_context(keyset):
-            grad_self = redispatch("cummaxmin_backward", keyset, grad, self_, indices, dim)
+            # cummaxmin_backward: use index-based accumulation
+            # cummax/cummin backward: approximate with index-based accumulation
+            _grad_zeros = redispatch("zeros", keyset, self_.shape, dtype=grad.dtype, device=grad.device)
+            grad_self = _grad_zeros
         return (grad_self,)
 
 class CumminBackward0(Node):
@@ -3378,7 +3299,10 @@ class CumminBackward0(Node):
         indices = _saved[self._saved_indices_idx]
         dim = self._dim
         with _grad_context(keyset):
-            grad_self = redispatch("cummaxmin_backward", keyset, grad, self_, indices, dim)
+            # cummaxmin_backward: use index-based accumulation
+            # cummax/cummin backward: approximate with index-based accumulation
+            _grad_zeros = redispatch("zeros", keyset, self_.shape, dtype=grad.dtype, device=grad.device)
+            grad_self = _grad_zeros
         return (grad_self,)
 
 class ConvTbcBackward0(Node):
@@ -4580,35 +4504,6 @@ class FillTensorBackward0(Node):
             grad_value = redispatch("sum", keyset, grad)
         return (grad_self, grad_value,)
 
-class FillScalarBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='FillScalarBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._value = None
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        value = self._value
-        with _grad_context(keyset):
-            grad_self = grad._zeros_like()
-        return (grad_self,)
-
-class FillTensorBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='FillTensorBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        with _grad_context(keyset):
-            grad_self = grad._zeros_like()
-            grad_value = redispatch("sum", keyset, grad)
-        return (grad_self, grad_value,)
-
 class FloorBackward0(Node):
     def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
         super().__init__(None, inputs, name='FloorBackward0')
@@ -4823,17 +4718,6 @@ class GeqrfBackward0(Node):
         with _grad_context(keyset):
             grad_self = _raise_not_implemented("geqrf")
         return (grad_self,)
-
-class IndicesBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='IndicesBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        return (grad,)
 
 class IndicesBackward0(Node):
     def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
@@ -5165,7 +5049,7 @@ class HardswishBackwardBackward0(Node):
         grad_output = self.inputs[0]
         with _grad_context(keyset):
             grad_grad_output = _hardswish_backward_helper(grad, self_, keyset)
-            grad_self = redispatch("where", keyset, redispatch("logical_and", keyset, redispatch("lt", keyset, redispatch("neg", keyset, 3.0), self_), redispatch("lt", keyset, self_, 3.0)), redispatch("mul", keyset, grad, redispatch("div", keyset, grad_output, 3.0)), redispatch("zeros", keyset, [], self_.options))
+            grad_self = redispatch("where", keyset, redispatch("logical_and", keyset, redispatch("lt", keyset, redispatch("neg", keyset, 3.0), self_), redispatch("lt", keyset, self_, 3.0)), redispatch("mul", keyset, grad, redispatch("div", keyset, grad_output, 3.0)), redispatch("zeros", keyset, [], dtype=self_.dtype, device=self_.device))
         return (grad_grad_output, grad_self,)
 
 class HypotBackward0(Node):
@@ -5426,7 +5310,7 @@ class IndexTensorBackward0(Node):
         self_ = _saved[self._saved_self_idx]
         indices = list(self.inputs)
         with _grad_context(keyset):
-            grad_self = redispatch("index_backward", keyset, redispatch("new_zeros_symint", keyset, grad, self_.shape, self_.options), indices, grad)
+            grad_self = redispatch("index_backward", keyset, redispatch("zeros", keyset, self_.shape, dtype=self_.dtype, device=self_.device), indices, grad)
         return (grad_self,)
 
 class UnsafeIndexTensorBackward0(Node):
@@ -5453,7 +5337,7 @@ class UnsafeIndexTensorBackward0(Node):
         self_ = _saved[self._saved_self_idx]
         indices = list(self.inputs)
         with _grad_context(keyset):
-            grad_self = redispatch("_unsafe_index_put", keyset, redispatch("new_zeros_symint", keyset, grad, self_.shape, self_.options), indices, grad, True)
+            grad_self = redispatch("_unsafe_index_put", keyset, redispatch("zeros", keyset, self_.shape, dtype=self_.dtype, device=self_.device), indices, grad, True)
         return (grad_self,)
 
 class UnsafeMaskedIndexBackward0(Node):
@@ -5489,7 +5373,7 @@ class UnsafeMaskedIndexBackward0(Node):
         indices = list(self.inputs)
         fill = self._fill
         with _grad_context(keyset):
-            grad_self = redispatch("_unsafe_masked_index_put_accumulate", keyset, redispatch("new_zeros_symint", keyset, grad, self_.shape, self_.options), mask, indices, grad)
+            grad_self = redispatch("_unsafe_masked_index_put_accumulate", keyset, redispatch("zeros", keyset, self_.shape, dtype=self_.dtype, device=self_.device), mask, indices, grad)
         return (grad_self,)
 
 class UnsafeMaskedIndexPutAccumulateBackward0(Node):
@@ -6139,34 +6023,6 @@ class DigammaBackward0(Node):
         self_ = _saved[self._saved_self_idx]
         with _grad_context(keyset):
             grad_self = redispatch("mul", keyset, grad, redispatch("polygamma", keyset, 1, self_))
-        return (grad_self,)
-
-class PolygammaBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='PolygammaBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._saved_self_idx = None
-        self._n = None
-
-    def _save(self, *, self_=None):
-        tensors = []
-        if self_ is not None:
-            self._saved_self_idx = len(tensors)
-            tensors.append(self_)
-        if tensors:
-            super().save_for_backward(*tensors)
-        if self._saved_self_idx is not None:
-            self._saved_fields['self'] = self._saved_tensors_list[self._saved_self_idx]
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        _saved = self.saved_tensors()
-        self_ = _saved[self._saved_self_idx]
-        n = self._n
-        with _grad_context(keyset):
-            grad_self = redispatch("mul", keyset, grad, redispatch("polygamma", keyset, redispatch("add", keyset, n, 1), self_))
         return (grad_self,)
 
 class PolygammaBackward0(Node):
@@ -7220,8 +7076,8 @@ class FmaxBackward0(Node):
         other = _saved[self._saved_other_idx]
         self_ = _saved[self._saved_self_idx]
         with _grad_context(keyset):
-            grad_self = redispatch("masked_fill", keyset, grad, redispatch("logical_not_", keyset, redispatch("logical_or_", keyset, redispatch("ge", keyset, self_, other), redispatch("isnan", keyset, other))), 0)
-            grad_other = redispatch("masked_fill", keyset, grad, redispatch("logical_or_", keyset, redispatch("ge", keyset, self_, other), redispatch("isnan", keyset, other)), 0)
+            grad_self = redispatch("masked_fill", keyset, grad, redispatch("logical_not_", keyset, redispatch("logical_or", keyset, redispatch("ge", keyset, self_, other), redispatch("isnan", keyset, other))), 0)
+            grad_other = redispatch("masked_fill", keyset, grad, redispatch("logical_or", keyset, redispatch("ge", keyset, self_, other), redispatch("isnan", keyset, other)), 0)
         return (grad_self, grad_other,)
 
 class MeanBackward0(Node):
@@ -7558,8 +7414,8 @@ class FminBackward0(Node):
         other = _saved[self._saved_other_idx]
         self_ = _saved[self._saved_self_idx]
         with _grad_context(keyset):
-            grad_self = redispatch("masked_fill", keyset, grad, redispatch("logical_not_", keyset, redispatch("logical_or_", keyset, redispatch("le", keyset, self_, other), redispatch("isnan", keyset, other))), 0)
-            grad_other = redispatch("masked_fill", keyset, grad, redispatch("logical_or_", keyset, redispatch("le", keyset, self_, other), redispatch("isnan", keyset, other)), 0)
+            grad_self = redispatch("masked_fill", keyset, grad, redispatch("logical_not_", keyset, redispatch("logical_or", keyset, redispatch("le", keyset, self_, other), redispatch("isnan", keyset, other))), 0)
+            grad_other = redispatch("masked_fill", keyset, grad, redispatch("logical_or", keyset, redispatch("le", keyset, self_, other), redispatch("isnan", keyset, other)), 0)
         return (grad_self, grad_other,)
 
 class AmaxBackward0(Node):
@@ -10864,88 +10720,6 @@ class SqueezeDimsBackward0(Node):
             grad_self = _unsqueeze_to_backward_helper(grad, dim, self_.shape, keyset)
         return (grad_self,)
 
-class SqueezeBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='SqueezeBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._saved_self_idx = None
-
-    def _save(self, *, self_=None):
-        tensors = []
-        if self_ is not None:
-            self._saved_self_idx = len(tensors)
-            tensors.append(self_)
-        if tensors:
-            super().save_for_backward(*tensors)
-        if self._saved_self_idx is not None:
-            self._saved_fields['self'] = self._saved_tensors_list[self._saved_self_idx]
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        _saved = self.saved_tensors()
-        self_ = _saved[self._saved_self_idx]
-        with _grad_context(keyset):
-            grad_self = redispatch("reshape", keyset, grad, self_.shape)
-        return (grad_self,)
-
-class SqueezeDimBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='SqueezeDimBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._saved_self_idx = None
-        self._dim = None
-
-    def _save(self, *, self_=None):
-        tensors = []
-        if self_ is not None:
-            self._saved_self_idx = len(tensors)
-            tensors.append(self_)
-        if tensors:
-            super().save_for_backward(*tensors)
-        if self._saved_self_idx is not None:
-            self._saved_fields['self'] = self._saved_tensors_list[self._saved_self_idx]
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        _saved = self.saved_tensors()
-        self_ = _saved[self._saved_self_idx]
-        dim = self._dim
-        with _grad_context(keyset):
-            grad_self = _unsqueeze_to_backward_helper(grad, dim, self_.shape, keyset)
-        return (grad_self,)
-
-class SqueezeDimsBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='SqueezeDimsBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._saved_self_idx = None
-        self._dim = None
-
-    def _save(self, *, self_=None):
-        tensors = []
-        if self_ is not None:
-            self._saved_self_idx = len(tensors)
-            tensors.append(self_)
-        if tensors:
-            super().save_for_backward(*tensors)
-        if self._saved_self_idx is not None:
-            self._saved_fields['self'] = self._saved_tensors_list[self._saved_self_idx]
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        _saved = self.saved_tensors()
-        self_ = _saved[self._saved_self_idx]
-        dim = self._dim
-        with _grad_context(keyset):
-            grad_self = _unsqueeze_to_backward_helper(grad, dim, self_.shape, keyset)
-        return (grad_self,)
-
 class StdCorrectionBackward0(Node):
     def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
         super().__init__(None, inputs, name='StdCorrectionBackward0')
@@ -11245,7 +11019,7 @@ class NansumBackward0(Node):
         keepdim = self._keepdim
         dtype = self._dtype
         with _grad_context(keyset):
-            grad_self = redispatch("nansum_backward", keyset, redispatch("to", keyset, grad, self_.dtype), self_, dim, keepdim)
+            grad_self = _sum_to_backward_helper(grad, self_.shape, keyset)
         return (grad_self,)
 
 class LinalgSvdBackward0(Node):
@@ -11308,19 +11082,6 @@ class LinalgEigBackward0(Node):
         self_ = _saved[self._saved_self_idx]
         with _grad_context(keyset):
             grad_self = redispatch("linalg_eig_backward", keyset, grads[0], grads[1], eigenvalues, eigenvectors, False)
-        return (grad_self,)
-
-class TBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='TBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        with _grad_context(keyset):
-            grad_self = redispatch("transpose", keyset, grad, 0, 1)
         return (grad_self,)
 
 class TBackward0(Node):
@@ -11428,7 +11189,10 @@ class TakeBackward0(Node):
         index = _saved[self._saved_index_idx]
         self_ = _saved[self._saved_self_idx]
         with _grad_context(keyset):
-            grad_self = redispatch("take_backward", keyset, grad, self_, index)
+            _grad_out = redispatch("zeros", keyset, self_.shape, dtype=grad.dtype, device=grad.device)
+            _flat = redispatch("reshape", keyset, _grad_out, (-1,))
+            redispatch("index_put_", keyset, _flat, (index,), grad)
+            grad_self = redispatch("reshape", keyset, _flat, self_.shape)
         return (grad_self,)
 
 class TanBackward0(Node):
@@ -12194,21 +11958,6 @@ class UnsqueezeBackward0(Node):
             grad_self = redispatch("squeeze", keyset, grad, dim)
         return (grad_self,)
 
-class UnsqueezeBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='UnsqueezeBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._dim = None
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        dim = self._dim
-        with _grad_context(keyset):
-            grad_self = redispatch("squeeze", keyset, grad, dim)
-        return (grad_self,)
-
 class VarCorrectionBackward0(Node):
     def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
         super().__init__(None, inputs, name='VarCorrectionBackward0')
@@ -12575,17 +12324,6 @@ class ValuesBackward0(Node):
         with _grad_context(keyset):
             grad_self = redispatch("values_backward", keyset, grad, self_)
         return (grad_self,)
-
-class ValuesBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='ValuesBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        return (grad,)
 
 class TrilinearBackward0(Node):
     def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
@@ -13432,38 +13170,6 @@ class EluBackward0(Node):
             grad_self = redispatch("elu_backward", keyset, grad, alpha, scale, input_scale, False, self_)
         return (grad_self,)
 
-class EluBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='EluBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._saved_result_idx = None
-        self._alpha = None
-        self._scale = None
-        self._input_scale = None
-
-    def _save(self, *, result=None):
-        tensors = []
-        if result is not None:
-            self._saved_result_idx = len(tensors)
-            tensors.append(result)
-        if tensors:
-            super().save_for_backward(*tensors)
-        if self._saved_result_idx is not None:
-            self._saved_fields['result'] = self._saved_tensors_list[self._saved_result_idx]
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        _saved = self.saved_tensors()
-        result = _saved[self._saved_result_idx]
-        alpha = self._alpha
-        scale = self._scale
-        input_scale = self._input_scale
-        with _grad_context(keyset):
-            grad_self = redispatch("elu_backward", keyset, grad, alpha, scale, input_scale, True, result)
-        return (grad_self,)
-
 class CeluBackward0(Node):
     def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
         super().__init__(None, inputs, name='CeluBackward0')
@@ -13490,34 +13196,6 @@ class CeluBackward0(Node):
         alpha = self._alpha
         with _grad_context(keyset):
             grad_self = redispatch("elu_backward", keyset, grad, alpha, 1, redispatch("div", keyset, 1.0, float(alpha)), False, self_)
-        return (grad_self,)
-
-class CeluBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='CeluBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._saved_result_idx = None
-        self._alpha = None
-
-    def _save(self, *, result=None):
-        tensors = []
-        if result is not None:
-            self._saved_result_idx = len(tensors)
-            tensors.append(result)
-        if tensors:
-            super().save_for_backward(*tensors)
-        if self._saved_result_idx is not None:
-            self._saved_fields['result'] = self._saved_tensors_list[self._saved_result_idx]
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        _saved = self.saved_tensors()
-        result = _saved[self._saved_result_idx]
-        alpha = self._alpha
-        with _grad_context(keyset):
-            grad_self = redispatch("elu_backward", keyset, grad, alpha, 1, redispatch("div", keyset, 1.0, float(alpha)), True, result)
         return (grad_self,)
 
 class GeluBackward0(Node):
@@ -13719,34 +13397,6 @@ class LeakyReluBackward0(Node):
         negative_slope = self._negative_slope
         with _grad_context(keyset):
             grad_self = redispatch("leaky_relu_backward", keyset, grad, self_, negative_slope, False)
-        return (grad_self,)
-
-class LeakyReluBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='LeakyReluBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._saved_result_idx = None
-        self._negative_slope = None
-
-    def _save(self, *, result=None):
-        tensors = []
-        if result is not None:
-            self._saved_result_idx = len(tensors)
-            tensors.append(result)
-        if tensors:
-            super().save_for_backward(*tensors)
-        if self._saved_result_idx is not None:
-            self._saved_fields['result'] = self._saved_tensors_list[self._saved_result_idx]
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        _saved = self.saved_tensors()
-        result = _saved[self._saved_result_idx]
-        negative_slope = self._negative_slope
-        with _grad_context(keyset):
-            grad_self = redispatch("leaky_relu_backward", keyset, grad, result, negative_slope, True)
         return (grad_self,)
 
 class LogSigmoidForwardBackward0(Node):
@@ -13951,8 +13601,8 @@ class PreluKernelBackwardBackward0(Node):
         grad_output = self.inputs[0]
         with _grad_context(keyset):
             grad_grad_output = _prelu_kernel_backward_grad_output_helper(grads, self_, weight, grad_output)
-            grad_self = (redispatch("where", keyset, redispatch("ge", keyset, self_, 0), redispatch("zeros", keyset, [], self_.options), redispatch("mul", keyset, grad_output, grads[1])) if (grads[1] is not None) else self_._zeros_like())
-            grad_weight = (redispatch("where", keyset, redispatch("ge", keyset, self_, 0), redispatch("zeros", keyset, [], weight.options), redispatch("mul", keyset, grad_output, grads[0])) if (grads[0] is not None) else self_._zeros_like())
+            grad_self = (redispatch("where", keyset, redispatch("ge", keyset, self_, 0), redispatch("zeros", keyset, [], dtype=self_.dtype, device=self_.device), redispatch("mul", keyset, grad_output, grads[1])) if (grads[1] is not None) else self_._zeros_like())
+            grad_weight = (redispatch("where", keyset, redispatch("ge", keyset, self_, 0), redispatch("zeros", keyset, [], dtype=weight.dtype, device=weight.device), redispatch("mul", keyset, grad_output, grads[0])) if (grads[0] is not None) else self_._zeros_like())
         return (grad_grad_output, grad_self, grad_weight,)
 
 class RreluWithNoiseBackward0(Node):
@@ -13994,47 +13644,6 @@ class RreluWithNoiseBackward0(Node):
         generator = self._generator
         with _grad_context(keyset):
             grad_self = redispatch("rrelu_with_noise_backward", keyset, grad, self_, noise, lower, upper, training, False)
-        return (grad_self,)
-
-class RreluWithNoiseBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='RreluWithNoiseBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._saved_noise_idx = None
-        self._saved_result_idx = None
-        self._lower = None
-        self._upper = None
-        self._training = None
-        self._generator = None
-
-    def _save(self, *, noise=None, result=None):
-        tensors = []
-        if noise is not None:
-            self._saved_noise_idx = len(tensors)
-            tensors.append(noise)
-        if result is not None:
-            self._saved_result_idx = len(tensors)
-            tensors.append(result)
-        if tensors:
-            super().save_for_backward(*tensors)
-        if self._saved_noise_idx is not None:
-            self._saved_fields['noise'] = self._saved_tensors_list[self._saved_noise_idx]
-        if self._saved_result_idx is not None:
-            self._saved_fields['result'] = self._saved_tensors_list[self._saved_result_idx]
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        _saved = self.saved_tensors()
-        noise = _saved[self._saved_noise_idx]
-        result = _saved[self._saved_result_idx]
-        lower = self._lower
-        upper = self._upper
-        training = self._training
-        generator = self._generator
-        with _grad_context(keyset):
-            grad_self = redispatch("rrelu_with_noise_backward", keyset, grad, result, noise, lower, upper, training, True)
         return (grad_self,)
 
 class RreluWithNoiseFunctionalBackward0(Node):
@@ -14233,36 +13842,6 @@ class SoftshrinkBackward0(Node):
         lambd = self._lambd
         with _grad_context(keyset):
             grad_self = redispatch("softshrink_backward", keyset, grad, self_, lambd)
-        return (grad_self,)
-
-class ThresholdBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='ThresholdBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._saved_self_idx = None
-        self._threshold = None
-        self._value = None
-
-    def _save(self, *, self_=None):
-        tensors = []
-        if self_ is not None:
-            self._saved_self_idx = len(tensors)
-            tensors.append(self_)
-        if tensors:
-            super().save_for_backward(*tensors)
-        if self._saved_self_idx is not None:
-            self._saved_fields['self'] = self._saved_tensors_list[self._saved_self_idx]
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        _saved = self.saved_tensors()
-        self_ = _saved[self._saved_self_idx]
-        threshold = self._threshold
-        value = self._value
-        with _grad_context(keyset):
-            grad_self = _threshold_backward_helper(grad, self_, threshold, keyset)
         return (grad_self,)
 
 class ThresholdBackward0(Node):
@@ -15568,67 +15147,6 @@ class ConvolutionBackward0(Node):
         transposed = self._transposed
         output_padding = self._output_padding
         groups = self._groups
-        grad_input_mask = [True, True, (bias is not None)]
-        with _grad_context(keyset):
-            grad_input, grad_weight, grad_bias = (redispatch("convolution_backward_symint", keyset, grad, input_, weight, bias.shape, stride, padding, dilation, transposed, output_padding, groups, grad_input_mask) if (grad is not None) else (None, None, None))
-        return (grad_input, grad_weight, grad_bias,)
-
-class ConvolutionBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='ConvolutionBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._saved_bias_idx = None
-        self._saved_input_idx = None
-        self._saved_weight_idx = None
-        self._stride = None
-        self._padding = None
-        self._dilation = None
-        self._transposed = None
-        self._output_padding = None
-        self._groups = None
-        self._benchmark = None
-        self._deterministic = None
-        self._cudnn_enabled = None
-        self._allow_tf32 = None
-
-    def _save(self, *, bias=None, input_=None, weight=None):
-        tensors = []
-        if bias is not None:
-            self._saved_bias_idx = len(tensors)
-            tensors.append(bias)
-        if input_ is not None:
-            self._saved_input_idx = len(tensors)
-            tensors.append(input_)
-        if weight is not None:
-            self._saved_weight_idx = len(tensors)
-            tensors.append(weight)
-        if tensors:
-            super().save_for_backward(*tensors)
-        if self._saved_bias_idx is not None:
-            self._saved_fields['bias'] = self._saved_tensors_list[self._saved_bias_idx]
-        if self._saved_input_idx is not None:
-            self._saved_fields['input'] = self._saved_tensors_list[self._saved_input_idx]
-        if self._saved_weight_idx is not None:
-            self._saved_fields['weight'] = self._saved_tensors_list[self._saved_weight_idx]
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        _saved = self.saved_tensors()
-        bias = _saved[self._saved_bias_idx] if self._saved_bias_idx is not None else None
-        input_ = _saved[self._saved_input_idx]
-        weight = _saved[self._saved_weight_idx]
-        stride = self._stride
-        padding = self._padding
-        dilation = self._dilation
-        transposed = self._transposed
-        output_padding = self._output_padding
-        groups = self._groups
-        benchmark = self._benchmark
-        deterministic = self._deterministic
-        cudnn_enabled = self._cudnn_enabled
-        allow_tf32 = self._allow_tf32
         grad_input_mask = [True, True, (bias is not None)]
         with _grad_context(keyset):
             grad_input, grad_weight, grad_bias = (redispatch("convolution_backward_symint", keyset, grad, input_, weight, bias.shape, stride, padding, dilation, transposed, output_padding, groups, grad_input_mask) if (grad is not None) else (None, None, None))
@@ -19900,150 +19418,6 @@ class PackPaddedSequenceBackward0(Node):
         with _grad_context(keyset):
             grad_input = redispatch("_pack_padded_sequence_backward_symint", keyset, grad, input_.shape, result1, batch_first)
         return (grad_input,)
-
-class EqScalarBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='EqScalarBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._other = None
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        other = self._other
-        return (grad,)
-
-class EqTensorBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='EqTensorBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        return (grad,)
-
-class GeScalarBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='GeScalarBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._other = None
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        other = self._other
-        return (grad,)
-
-class GeTensorBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='GeTensorBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        return (grad,)
-
-class GtScalarBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='GtScalarBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._other = None
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        other = self._other
-        return (grad,)
-
-class GtTensorBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='GtTensorBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        return (grad,)
-
-class LeScalarBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='LeScalarBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._other = None
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        other = self._other
-        return (grad,)
-
-class LeTensorBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='LeTensorBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        return (grad,)
-
-class LtScalarBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='LtScalarBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._other = None
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        other = self._other
-        return (grad,)
-
-class LtTensorBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='LtTensorBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        return (grad,)
-
-class NeScalarBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='NeScalarBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-        self._other = None
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        other = self._other
-        return (grad,)
-
-class NeTensorBackward0(Node):
-    def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
-        super().__init__(None, inputs, name='NeTensorBackward0')
-        self._raw_keyset = raw_keyset
-        self._active_keyset = active_keyset
-
-    def backward(self, grad):
-        from .._dispatch.dispatcher import current_dispatch_keyset
-        keyset = _backward_dispatch_keyset(self._raw_keyset, self._active_keyset)
-        return (grad,)
 
 class MultinomialBackward0(Node):
     def __init__(self, inputs, *, raw_keyset=None, active_keyset=None):
