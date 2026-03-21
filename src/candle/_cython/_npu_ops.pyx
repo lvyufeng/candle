@@ -118,22 +118,32 @@ cdef object _Tensor = None
 
 cdef object _get_runtime_fast = None
 cdef object _get_stream_fast = None
+cdef object _aclrt_sync_stream_fn = None   # _aclrt_ffi.synchronize_stream
+cdef object _flush_executors_fn = None     # aclnn.flush_deferred_executors
+cdef object _get_allocator_fn_ref = None   # allocator.get_allocator (for sync path)
 
 cdef inline void _ensure_npu_imports():
     global _npu_runtime, _npu_state, _npu_typed_storage_from_ptr, _Tensor
     global _get_runtime_fast, _get_stream_fast
+    global _aclrt_sync_stream_fn, _flush_executors_fn, _get_allocator_fn_ref
     if _npu_runtime is not None:
         return
     from candle._backends.npu import runtime as rt
     from candle._backends.npu import state as st
+    from candle._backends.npu import allocator as _alloc_mod
     from candle._storage import npu_typed_storage_from_ptr as nfp
     from candle._tensor import Tensor as T
+    from candle._cython._aclrt_ffi import synchronize_stream as _ssf  # pylint: disable=import-error,no-name-in-module
+    from candle._backends.npu.aclnn import flush_deferred_executors as _fef
     _npu_runtime = rt
     _npu_state = st
     _npu_typed_storage_from_ptr = nfp
     _Tensor = T
     _get_runtime_fast = rt.get_runtime_fast
     _get_stream_fast = st.current_stream_fast
+    _aclrt_sync_stream_fn = _ssf
+    _flush_executors_fn = _fef
+    _get_allocator_fn_ref = _alloc_mod.get_allocator
 
 
 def fast_binary_op(a, b, fn, str name):
@@ -217,3 +227,54 @@ def fast_binary_op(a, b, fn, str name):
     out_storage = _npu_typed_storage_from_ptr(
         out_ptr, n, a_dtype, device=a_dev)
     return _Tensor(out_storage, out_shape, out_stride)
+
+
+# ---------------------------------------------------------------------------
+# cy_npu_synchronize — fast synchronize bypassing Python dispatch overhead
+# ---------------------------------------------------------------------------
+
+def cy_npu_synchronize(int device_id=0):
+    """Fast NPU synchronize: skip Python imports, Device construction, activate().
+
+    Equivalent to runtime.synchronize() for the given device but avoids:
+    - Lazy imports of runtime/allocator/aclnn on each call
+    - Device object construction
+    - Two activate() round-trips (set_device + set_context)
+
+    All callables are cached at first call via _ensure_npu_imports().
+    """
+    _ensure_npu_imports()
+
+    # 1. Cached runtime — already initialized, no activate() needed
+    runtime = _get_runtime_fast(device_id)
+
+    # 2. Direct aclrtSynchronizeStream (~1.25 us)
+    _aclrt_sync_stream_fn(runtime.stream)
+
+    # 3. Allocator drain: pending events + return cached blocks
+    alloc = _get_allocator_fn_ref(device_id)
+    alloc.synchronize()
+
+    # 4. Flush deferred executors (usually empty, ~0.2 us)
+    _flush_executors_fn()
+
+    # 5. Process all three deferred free lists from runtime
+    frees = runtime._deferred_frees
+    if frees:
+        runtime._deferred_frees = []
+        for ptr in frees:
+            alloc.free(ptr, None)
+
+    raw_frees = runtime._deferred_raw_frees
+    if raw_frees:
+        runtime._deferred_raw_frees = []
+        from candle._backends.npu import runtime as _rt_mod
+        for ptr in raw_frees:
+            _rt_mod.acl.rt.free(ptr)
+
+    host_frees = runtime._deferred_host_frees
+    if host_frees:
+        runtime._deferred_host_frees = []
+        from candle._backends.npu import runtime as _rt_mod
+        for ptr in host_frees:
+            _rt_mod.acl.rt.free_host(ptr)
