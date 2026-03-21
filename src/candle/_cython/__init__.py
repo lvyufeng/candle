@@ -1,26 +1,16 @@
 """Candle's C extension layer — Cython accelerators for hot paths.
 
-This package provides Cython implementations of performance-critical code
-paths (dispatcher, allocator, storage creation, NPU ops, ACLNN FFI,
-TensorImpl, dispatcher core, device, dtype, autograd node, autograd graph,
-fast ops).
+Runtime-critical modules are imported directly by their Python wrappers
+(`_dispatch.dispatcher`, `_tensor`, `_device`, `autograd.engine`, etc.).
+This package intentionally avoids eagerly importing autograd-heavy modules in
+`__init__` because doing so creates circular-import bootstrapping issues during
+`import candle`.
 
-Feature flags (set after import):
-    _HAS_CYTHON_DISPATCH        — True if _dispatch.pyx compiled successfully
-    _HAS_CYTHON_ALLOCATOR       — True if _allocator.pyx compiled successfully
-    _HAS_CYTHON_STORAGE         — True if _storage.pyx compiled successfully
-    _HAS_CYTHON_NPU_OPS         — True if _npu_ops.pyx compiled successfully
-    _HAS_CYTHON_ACLNN_FFI       — True if _aclnn_ffi.pyx compiled successfully
-    _HAS_CYTHON_TENSOR_IMPL     — True if _tensor_impl.pyx compiled successfully
-    _HAS_CYTHON_DISPATCHER_CORE — True if _dispatcher_core.pyx compiled
-    _HAS_CYTHON_DEVICE          — True if _device.pyx compiled successfully
-    _HAS_CYTHON_DTYPE           — True if _dtype.pyx compiled successfully
-    _HAS_CYTHON_AUTOGRAD_NODE   — always True (hard import, no fallback)
-    _HAS_CYTHON_AUTOGRAD_GRAPH  — always True (hard import, no fallback)
-    _HAS_CYTHON_AUTOGRAD_ENGINE — always True (hard import, no fallback)
-    _HAS_CYTHON_AUTOGRAD_FUNCTION — always True (hard import, no fallback)
-    _HAS_CYTHON_AUTOGRAD_OPS    — always True (hard import, no fallback)
-    _HAS_CYTHON_FAST_OPS        — True if _fast_ops.pyx compiled successfully
+The runtime core requires the following compiled modules to exist:
+- `_tensor_impl`
+- `_dispatcher_core`
+- `_device`
+- `_dtype`
 """
 
 _HAS_CYTHON_DISPATCH = False
@@ -32,15 +22,18 @@ _HAS_CYTHON_TENSOR_IMPL = False
 _HAS_CYTHON_DISPATCHER_CORE = False
 _HAS_CYTHON_DEVICE = False
 _HAS_CYTHON_DTYPE = False
-# Autograd core modules are required (hard imports below — no fallback).
 _HAS_CYTHON_AUTOGRAD_NODE = False
 _HAS_CYTHON_AUTOGRAD_GRAPH = False
 _HAS_CYTHON_AUTOGRAD_ENGINE = False
 _HAS_CYTHON_AUTOGRAD_FUNCTION = False
 _HAS_CYTHON_AUTOGRAD_OPS = False
+_HAS_CYTHON_FAST_OPS = False
 
+# Non-core helper flags are informational only. They should not be used as
+# package-level hard dependencies because their import surfaces differ from the
+# direct consumer modules that load them.
 try:
-    from ._dispatch import cy_dispatch, cy_dispatch_with_keyset  # noqa: F401
+    from . import _dispatch as _dispatch_mod  # noqa: F401
     _HAS_CYTHON_DISPATCH = True
 except ImportError:
     pass
@@ -52,7 +45,7 @@ except ImportError:
     pass
 
 try:
-    from ._storage import cy_npu_storage_from_ptr  # noqa: F401
+    from . import _storage as _storage_mod  # noqa: F401
     _HAS_CYTHON_STORAGE = True
 except ImportError:
     pass
@@ -76,87 +69,53 @@ try:
 except ImportError:
     pass
 
+# Runtime-core availability flags: import only the leaf extension modules that
+# do not themselves recurse back through candle._cython.__init__.
 try:
     from ._tensor_impl import TensorImpl, _VersionCounterProxy  # noqa: F401
     _HAS_CYTHON_TENSOR_IMPL = True
-except ImportError:
-    pass
+except ImportError as exc:
+    raise ImportError(
+        "Failed to import candle._cython._tensor_impl. Build the required Cython "
+        "runtime core with `python setup.py build_ext --inplace` or install with "
+        "a build that includes the compiled extensions."
+    ) from exc
 
 try:
-    from ._dispatcher_core import cy_dispatch_with_keyset_fast  # noqa: F401
+    from ._dispatcher_core import cy_dispatch_full, cy_dispatch_with_keyset_fast  # noqa: F401
     _HAS_CYTHON_DISPATCHER_CORE = True
-except ImportError:
-    pass
+except ImportError as exc:
+    raise ImportError(
+        "Failed to import candle._cython._dispatcher_core. Build the required Cython "
+        "runtime core with `python setup.py build_ext --inplace` or install with "
+        "a build that includes the compiled extensions."
+    ) from exc
 
 try:
     from ._device import FastDevice  # noqa: F401
     _HAS_CYTHON_DEVICE = True
-except ImportError:
-    pass
+except ImportError as exc:
+    raise ImportError(
+        "Failed to import candle._cython._device. Build the required Cython "
+        "runtime core with `python setup.py build_ext --inplace` or install with "
+        "a build that includes the compiled extensions."
+    ) from exc
 
 try:
     from ._dtype import FastDType  # noqa: F401
     _HAS_CYTHON_DTYPE = True
-except ImportError:
-    pass
-
-from ._autograd_node import (  # pylint: disable=import-error,no-name-in-module
-    AccumulateGrad,  # noqa: F401
-    FastNode,  # noqa: F401
-    InputMetadata,  # noqa: F401
-    Node,  # noqa: F401
-    SavedTensor,  # noqa: F401
-    _NodeHookHandle,  # noqa: F401
-    _SavedValue,  # noqa: F401
-)
-_HAS_CYTHON_AUTOGRAD_NODE = True
-
-from ._autograd_graph import (  # noqa: F401  # pylint: disable=import-error,no-name-in-module
-    GradientEdge,
-    current_saved_tensors_hooks,
-    get_gradient_edge,
-    saved_tensors_hooks,
-)
-_HAS_CYTHON_AUTOGRAD_GRAPH = True
-
-from ._autograd_engine import (  # noqa: F401  # pylint: disable=import-error,no-name-in-module
-    _GraphTask,
-    _build_dependencies,
-    _run_backward,
-    backward,
-    current_anomaly_parent,
-    grad,
-    is_anomaly_check_nan_enabled,
-    is_anomaly_enabled,
-    is_create_graph_enabled,
-    pop_anomaly_config,
-    pop_evaluating_node,
-    push_anomaly_config,
-    push_evaluating_node,
-)
-_HAS_CYTHON_AUTOGRAD_ENGINE = True
-
-from ._autograd_function import (  # noqa: F401  # pylint: disable=import-error,no-name-in-module
-    FunctionCtx,
-    _function_apply,
-)
-_HAS_CYTHON_AUTOGRAD_FUNCTION = True
-
-from ._autograd_ops import (  # noqa: F401  # pylint: disable=import-error,no-name-in-module
-    _strip_autograd_keys,
-    _grad_context,
-    _backward_dispatch_keyset,
-    _autograd_unary_passthrough,
-    _autograd_binary,
-    _autograd_binary_args,
-    _autograd_unary_args,
-    _norm_extract_weight_bias,
-    _autograd_norm,
-)
-_HAS_CYTHON_AUTOGRAD_OPS = True
+except ImportError as exc:
+    raise ImportError(
+        "Failed to import candle._cython._dtype. Build the required Cython "
+        "runtime core with `python setup.py build_ext --inplace` or install with "
+        "a build that includes the compiled extensions."
+    ) from exc
 
 try:
-    from ._fast_ops import add, mul, matmul  # noqa: F401
+    from . import _fast_ops as _fast_ops_mod  # noqa: F401
     _HAS_CYTHON_FAST_OPS = True
 except ImportError:
     pass
+
+# Autograd-heavy modules are intentionally NOT eagerly imported here; they are
+# imported directly by their Python wrappers to avoid circular bootstrapping.

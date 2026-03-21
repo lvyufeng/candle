@@ -76,14 +76,17 @@ from ._functional import log1p as log1p_dispatch, expm1 as expm1_dispatch
 from .autograd.engine import backward as _backward
 from ._printing import format_tensor
 
-# TensorImpl base class: Cython if available, else pure-Python fallback
+# TensorImpl base class: runtime-core requires the compiled Cython implementation.
 try:
     from ._cython._tensor_impl import TensorImpl as _TensorBase
     from ._cython._tensor_impl import _VersionCounterProxy  # noqa: F401
     _HAS_CYTHON_TENSOR_IMPL = True
-except ImportError:
-    from ._cython._tensor_impl_fallback import TensorImpl as _TensorBase
-    _HAS_CYTHON_TENSOR_IMPL = False
+except ImportError as exc:
+    raise ImportError(
+        "Failed to import candle._cython._tensor_impl. Build the required Cython "
+        "runtime core with `python setup.py build_ext --inplace` or install with "
+        "a build that includes the compiled extensions."
+    ) from exc
 
 
 class _StrideTuple(tuple):
