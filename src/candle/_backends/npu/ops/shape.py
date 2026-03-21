@@ -185,21 +185,66 @@ def _require_int64_indices(indices, name):
     return indices
 
 
+def _nonzero_mask_float(a):
+    from .comparison import logical_not
+
+    if not aclnn.eq_scalar_symbols_ok():
+        raise RuntimeError("aclnnEqScalar symbols not available")
+    runtime = npu_runtime.get_runtime((a.device.index or 0))
+    stream = npu_state.current_stream((a.device.index or 0))
+    shape = tuple(a.shape)
+    stride = tuple(a.stride)
+    numel = max(_numel(shape), 1)
+    out_ptr = npu_runtime._alloc_device(numel * _dtype_itemsize(bool_dtype), runtime=runtime)
+    aclnn.eq_scalar(
+        _unwrap_storage(a).data_ptr(),
+        0.0,
+        out_ptr,
+        shape,
+        stride,
+        a.dtype,
+        runtime,
+        stream=stream.stream,
+    )
+    out_storage = npu_typed_storage_from_ptr(out_ptr, numel, bool_dtype, device=a.device)
+    return logical_not(_wrap_tensor(out_storage, shape, stride))
+
+
+def _positive_mask_int64(indices, scalar):
+    from .comparison import logical_and, logical_not
+    from .math import signbit, sub
+
+    delta = sub(indices, _scalar_to_npu_tensor(int(scalar), indices))
+    delta_f = _cast_tensor_dtype(delta, float_dtype)
+    return logical_and(logical_not(signbit(delta_f)), _nonzero_mask_float(delta_f))
+
+
+def _negative_mask_int64(indices):
+    from .math import signbit
+
+    return signbit(_cast_tensor_dtype(indices, float_dtype))
+
+
+def _below_negative_lower_bound_mask_int64(indices, dim_size):
+    from .math import add, signbit
+
+    shifted = add(indices, _scalar_to_npu_tensor(int(dim_size), indices))
+    return signbit(_cast_tensor_dtype(shifted, float_dtype))
+
+
 def _use_310b_int64_index_compare_workaround(indices):
     return indices.dtype == int64_dtype and ops_soc.capability("use_safe_int64_index_compare")
 
 
 def _validate_index_bounds(indices, dim_size, allow_negative, name):
     from .comparison import lt, gt
-    from .reduce import any_, amin, amax
+    from .reduce import any_
     if indices.numel() == 0:
         return
     if _use_310b_int64_index_compare_workaround(indices):
-        lower = -int(dim_size) if allow_negative else 0
-        upper = int(dim_size - 1)
-        min_val = _read_int64_scalar(amin(indices))
-        max_val = _read_int64_scalar(amax(indices))
-        if min_val < lower or max_val > upper:
+        below_min = _below_negative_lower_bound_mask_int64(indices, dim_size) if allow_negative else _negative_mask_int64(indices)
+        above_max = _positive_mask_int64(indices, int(dim_size - 1))
+        if _read_bool_scalar(any_(below_min)) or _read_bool_scalar(any_(above_max)):
             raise IndexError(f"{name} indices out of range")
         return
     if allow_negative:
@@ -246,14 +291,12 @@ def _blend_negative_indices(indices, neg_mask, dim_size):
 
 def _normalize_negative_indices(indices, dim_size):
     from .comparison import lt
-    from .reduce import any_, amin
+    from .reduce import any_
     from .math import add
     if _use_310b_int64_index_compare_workaround(indices):
-        min_val = _read_int64_scalar(amin(indices))
-        if min_val >= 0:
+        neg_mask = _negative_mask_int64(indices)
+        if not _read_bool_scalar(any_(neg_mask)):
             return indices
-        idx_f = _cast_tensor_dtype(indices, float_dtype)
-        neg_mask = lt(idx_f, _scalar_to_npu_tensor(0.0, idx_f))
         return _blend_negative_indices(indices, neg_mask, dim_size)
     neg_mask = lt(indices, _scalar_to_npu_tensor(0, indices))
     if not _read_bool_scalar(any_(neg_mask)):
