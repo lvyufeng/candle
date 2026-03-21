@@ -79,7 +79,15 @@ try:
 except ImportError:
     pass
 
-from ._tensor_impl import TensorImpl, _VersionCounterProxy  # noqa: F401  # pylint: disable=import-error,no-name-in-module
+try:
+    from ._tensor_impl import TensorImpl, _VersionCounterProxy  # noqa: F401  # pylint: disable=import-error,no-name-in-module
+    _HAS_CYTHON_TENSOR_IMPL = True
+except ImportError as exc:
+    raise ImportError(
+        "Failed to import candle._cython._tensor_impl. Build the required Cython "
+        "runtime core with `python setup.py build_ext --inplace` or install with "
+        "a build that includes the compiled extensions."
+    ) from exc
 
 try:
     from ._dispatcher_core import cy_dispatch_with_keyset_fast  # noqa: F401
