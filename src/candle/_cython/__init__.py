@@ -2,9 +2,8 @@
 
 This package provides Cython implementations of performance-critical code
 paths (dispatcher, allocator, storage creation, NPU ops, ACLNN FFI,
-TensorImpl, dispatcher core, device, dtype, autograd node, fast ops).
-Each module has a pure-Python fallback so the framework works without
-a C compiler.
+TensorImpl, dispatcher core, device, dtype, autograd node, autograd graph,
+fast ops).
 
 Feature flags (set after import):
     _HAS_CYTHON_DISPATCH   — True if _dispatch.pyx compiled successfully
@@ -17,6 +16,7 @@ Feature flags (set after import):
     _HAS_CYTHON_DEVICE     — True if _device.pyx compiled successfully
     _HAS_CYTHON_DTYPE      — True if _dtype.pyx compiled successfully
     _HAS_CYTHON_AUTOGRAD_NODE — True if _autograd_node.pyx compiled
+    _HAS_CYTHON_AUTOGRAD_GRAPH — True if _autograd_graph.pyx compiled
     _HAS_CYTHON_FAST_OPS   — True if _fast_ops.pyx compiled successfully
 """
 
@@ -29,8 +29,7 @@ _HAS_CYTHON_TENSOR_IMPL = False
 _HAS_CYTHON_DISPATCHER_CORE = False
 _HAS_CYTHON_DEVICE = False
 _HAS_CYTHON_DTYPE = False
-_HAS_CYTHON_AUTOGRAD_NODE = False
-_HAS_CYTHON_FAST_OPS = False
+_HAS_CYTHON_AUTOGRAD_GRAPH = False
 
 try:
     from ._dispatch import cy_dispatch, cy_dispatch_with_keyset  # noqa: F401
@@ -93,11 +92,24 @@ try:
 except ImportError:
     pass
 
-try:
-    from ._autograd_node import FastNode  # noqa: F401
-    _HAS_CYTHON_AUTOGRAD_NODE = True
-except ImportError:
-    pass
+from ._autograd_node import (
+    AccumulateGrad,  # noqa: F401
+    FastNode,  # noqa: F401
+    InputMetadata,  # noqa: F401
+    Node,  # noqa: F401
+    SavedTensor,  # noqa: F401
+    _NodeHookHandle,  # noqa: F401
+    _SavedValue,  # noqa: F401
+)
+_HAS_CYTHON_AUTOGRAD_NODE = True
+
+from ._autograd_graph import (  # noqa: F401
+    GradientEdge,
+    current_saved_tensors_hooks,
+    get_gradient_edge,
+    saved_tensors_hooks,
+)
+_HAS_CYTHON_AUTOGRAD_GRAPH = True
 
 try:
     from ._fast_ops import add, mul, matmul  # noqa: F401
