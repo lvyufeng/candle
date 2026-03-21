@@ -216,20 +216,28 @@ def _positive_mask_int64(indices, scalar):
 
     delta = sub(indices, _scalar_to_npu_tensor(int(scalar), indices))
     delta_f = _cast_tensor_dtype(delta, float_dtype)
-    return _cast_tensor_dtype(sign(relu(delta_f)), bool_dtype)
+    return sign(relu(delta_f))
 
 
 def _negative_mask_int64(indices):
-    from .math import signbit
+    from .activation import relu
+    from .math import sign, neg
 
-    return signbit(_cast_tensor_dtype(indices, float_dtype))
+    return sign(relu(neg(_cast_tensor_dtype(indices, float_dtype))))
 
 
 def _below_negative_lower_bound_mask_int64(indices, dim_size):
-    from .math import add, signbit
+    from .activation import relu
+    from .math import add, sign, neg
 
     shifted = add(indices, _scalar_to_npu_tensor(int(dim_size), indices))
-    return signbit(_cast_tensor_dtype(shifted, float_dtype))
+    return sign(relu(neg(_cast_tensor_dtype(shifted, float_dtype))))
+
+
+def _mask_has_any(mask):
+    from .reduce import amax
+
+    return float(amax(mask).to("cpu").item()) != 0.0
 
 
 def _use_310b_int64_index_compare_workaround(indices):
@@ -244,7 +252,7 @@ def _validate_index_bounds(indices, dim_size, allow_negative, name):
     if _use_310b_int64_index_compare_workaround(indices):
         below_min = _below_negative_lower_bound_mask_int64(indices, dim_size) if allow_negative else _negative_mask_int64(indices)
         above_max = _positive_mask_int64(indices, int(dim_size - 1))
-        if _read_bool_scalar(any_(below_min)) or _read_bool_scalar(any_(above_max)):
+        if _mask_has_any(below_min) or _mask_has_any(above_max):
             raise IndexError(f"{name} indices out of range")
         return
     if allow_negative:
@@ -295,9 +303,9 @@ def _normalize_negative_indices(indices, dim_size):
     from .math import add
     if _use_310b_int64_index_compare_workaround(indices):
         neg_mask = _negative_mask_int64(indices)
-        if not _read_bool_scalar(any_(neg_mask)):
+        if not _mask_has_any(neg_mask):
             return indices
-        return _blend_negative_indices(indices, neg_mask, dim_size)
+        return _blend_negative_indices(indices, _cast_tensor_dtype(neg_mask, bool_dtype), dim_size)
     neg_mask = lt(indices, _scalar_to_npu_tensor(0, indices))
     if not _read_bool_scalar(any_(neg_mask)):
         return indices
