@@ -73,6 +73,7 @@ def test_fast_synchronize_matches_runtime_for_string_device(monkeypatch):
 def test_fast_synchronize_skips_fast_path_during_capture(monkeypatch):
     """Fast path must be disabled while the current stream is under capture."""
     import candle.npu as npu
+    from candle._backends.npu import runtime as npu_runtime
 
     seen = {"runtime": 0, "fast": 0}
 
@@ -80,9 +81,11 @@ def test_fast_synchronize_skips_fast_path_during_capture(monkeypatch):
         def synchronize(self):
             seen["runtime"] += 1
 
+    monkeypatch.setattr(npu, "_NPU_INITIALIZED", True)
+    monkeypatch.setattr(npu_runtime.cann_discovery, "get_cann_version", lambda: (8, 5, 0))
     monkeypatch.setattr(npu, "_cy_npu_sync", lambda dev_idx: seen.__setitem__("fast", seen["fast"] + 1))
     monkeypatch.setattr(npu, "is_current_stream_capturing", lambda: True)
-    monkeypatch.setattr("candle._backends.npu.runtime.get_runtime", lambda idx: FakeRuntime())
+    monkeypatch.setattr(npu_runtime, "get_runtime", lambda idx: FakeRuntime())
 
     npu.synchronize(None)
     assert seen["runtime"] == 1
