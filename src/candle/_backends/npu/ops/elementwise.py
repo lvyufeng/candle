@@ -44,12 +44,11 @@ def where(cond, x, y):
         cond = _npu_broadcast_to(cond, out_shape)
 
     if _use_soc_fallback("where"):
-        out = contiguous(y)
-        idx = nonzero(cond, as_tuple=True)
-        if len(idx) == 0 or idx[0].numel() == 0:
-            return out
-        vals = masked_select(x, cond)
-        return index_put_(out, idx, vals, accumulate=False)
+        # Arithmetic composite: avoid nonzero/index_put_ which poison 310B state.
+        # out = cond_f * x + (1 - cond_f) * y
+        cond_f = _cast_tensor_dtype(cond, x.dtype)
+        one_minus = sub(_scalar_to_npu_tensor(1.0, cond_f), cond_f)
+        return add(mul(cond_f, x), mul(one_minus, y))
 
     if not aclnn.s_where_symbols_ok():
         raise RuntimeError("aclnnSWhere symbols not available")
