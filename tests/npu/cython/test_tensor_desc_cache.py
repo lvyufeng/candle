@@ -1,5 +1,4 @@
 import pytest
-pytestmark = pytest.mark.npu
 
 
 def test_cache_hit_same_tensor(npu_device):
