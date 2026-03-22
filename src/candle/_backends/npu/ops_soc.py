@@ -45,6 +45,7 @@ _FALLBACK_OPS = {
     }),
     "310b": frozenset({
         # Confirmed broken/missing native kernels on 310B (locally tested):
+        "allclose",     # le_tensor path in allclose segfaults after common test sequence
         "isinf",        # aclnnIsInf returns 161001 (unavailable)
         "dot",          # aclnnDot returns 561103
         "matmul",       # aclnnMatmul float32 unsupported; cast to float16

@@ -487,27 +487,11 @@ def asinh(a):
 
 
 def acosh(a):
-    # Lazy import to avoid circular dependency with comparison/logical ops
-    from . import lt, where
-
-    out = _unary_op(a, aclnn.acosh, "acosh")
-    if a.dtype.name == "float16":
-        return out
-    one = _scalar_to_npu_tensor(1, a)
-    mask = lt(a, one)
-    return where(mask, _nan_like(a), out)
+    return _unary_op(a, aclnn.acosh, "acosh")
 
 
 def atanh(a):
-    # Lazy import to avoid circular dependency with comparison/logical ops
-    from . import ge, where
-
-    out = _unary_op(a, aclnn.atanh, "atanh")
-    if a.dtype.name == "float16":
-        return out
-    one = _scalar_to_npu_tensor(1, a)
-    mask = ge(abs(a), one)
-    return where(mask, _nan_like(a), out)
+    return _unary_op(a, aclnn.atanh, "atanh")
 
 
 def atan(a):
@@ -515,27 +499,11 @@ def atan(a):
 
 
 def asin(a):
-    # Lazy import to avoid circular dependency with comparison/logical ops
-    from . import gt, where
-
-    out = _unary_op(a, aclnn.asin, "asin")
-    if a.dtype.name == "float16":
-        return out
-    one = _scalar_to_npu_tensor(1, a)
-    mask = gt(abs(a), one)
-    return where(mask, _nan_like(a), out)
+    return _unary_op(a, aclnn.asin, "asin")
 
 
 def acos(a):
-    # Lazy import to avoid circular dependency with comparison/logical ops
-    from . import gt, where
-
-    out = _unary_op(a, aclnn.acos, "acos")
-    if a.dtype.name == "float16":
-        return out
-    one = _scalar_to_npu_tensor(1, a)
-    mask = gt(abs(a), one)
-    return where(mask, _nan_like(a), out)
+    return _unary_op(a, aclnn.acos, "acos")
 
 
 # ---------------------------------------------------------------------------
