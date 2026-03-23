@@ -12,8 +12,8 @@ from pathlib import Path
 
 def main(yaml_path: str | Path, output_dir: str | Path) -> None:
     from .load_derivatives import load_derivatives
-    from .gen_functions import gen_functions
-    from .gen_variable_type import gen_variable_type
+    from .gen_functions import gen_functions, gen_functions_pyx
+    from .gen_variable_type import gen_variable_type, gen_variable_type_pyx
     from .gen_registration import gen_registration
 
     yaml_path = Path(yaml_path)
@@ -28,6 +28,8 @@ def main(yaml_path: str | Path, output_dir: str | Path) -> None:
         "functions.py": gen_functions(infos),
         "variable_type.py": gen_variable_type(infos),
         "registration.py": gen_registration(infos),
+        "_functions_cy.pyx": gen_functions_pyx(infos),
+        "_variable_type_cy.pyx": gen_variable_type_pyx(infos),
     }
 
     for name, content in files.items():

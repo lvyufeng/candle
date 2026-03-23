@@ -508,3 +508,31 @@ def test_cy_functions_backward_class_names():
         "_functions_cy missing MulBackward0"
     )
 
+
+@_skip_no_yaml
+def test_gen_autograd_writes_cython_outputs(tmp_path):
+    """gen_autograd.main() must write both .pyx outputs alongside the .py outputs.
+
+    This test drives Task 2: it fails today because gen_autograd only writes
+    functions.py / variable_type.py / registration.py.  It will pass once
+    gen_autograd is extended to call gen_functions_pyx and gen_variable_type_pyx.
+    """
+    from tools.autograd.gen_autograd import main
+    from pathlib import Path
+
+    yaml_path = Path(__file__).resolve().parents[2] / "tools" / "autograd" / "derivatives.yaml"
+    main(yaml_path, tmp_path)
+
+    # Existing .py outputs must still be written
+    assert (tmp_path / "functions.py").exists(), "functions.py missing"
+    assert (tmp_path / "variable_type.py").exists(), "variable_type.py missing"
+    assert (tmp_path / "registration.py").exists(), "registration.py missing"
+
+    # New .pyx outputs required by Task 2
+    assert (tmp_path / "_functions_cy.pyx").exists(), (
+        "_functions_cy.pyx not written — update gen_autograd to call gen_functions_pyx"
+    )
+    assert (tmp_path / "_variable_type_cy.pyx").exists(), (
+        "_variable_type_cy.pyx not written — update gen_autograd to call gen_variable_type_pyx"
+    )
+
