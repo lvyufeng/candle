@@ -82,7 +82,6 @@ class TestDerivativesYamlParsing:
         from pathlib import Path
         yaml_path = Path(__file__).resolve().parents[2] / "tools" / "autograd" / "derivatives.yaml"
         infos = load_derivatives(yaml_path)
-        info_map = {i.name: i for i in infos}
 
         mul_info = next(i for i in infos if i.func_name == "mul.Scalar")
         assert mul_info.backward_name == "MulScalarBackward0"
@@ -444,3 +443,68 @@ class TestNormBackwardNumerical:
         y.sum().backward()
         assert x.grad is not None
         assert x.grad.shape == (2, 3)
+
+
+# ---------------------------------------------------------------------------
+# Part 5: Cython compiled-module contract tests (Task 1)
+# ---------------------------------------------------------------------------
+# These tests pin the contract that future compiled Cython modules must satisfy.
+# They are expected to FAIL until Tasks 3–5 are implemented (modules compiled).
+# Do NOT skip or xfail them — they must fail loudly so CI catches regressions.
+
+def test_generated_cython_variable_type_module_exists():
+    """candle._generated._variable_type_cy must expose autograd wrapper callables."""
+    import importlib
+    mod = importlib.import_module("candle._generated._variable_type_cy")
+    assert hasattr(mod, "exp_autograd"), "_variable_type_cy missing exp_autograd"
+    assert hasattr(mod, "matmul_autograd"), "_variable_type_cy missing matmul_autograd"
+    assert hasattr(mod, "mul_tensor_autograd"), "_variable_type_cy missing mul_tensor_autograd"
+
+
+def test_generated_cython_functions_module_exists():
+    """candle._generated._functions_cy must expose backward Node classes."""
+    import importlib
+    mod = importlib.import_module("candle._generated._functions_cy")
+    assert hasattr(mod, "ExpBackward0"), "_functions_cy missing ExpBackward0"
+    assert hasattr(mod, "MulBackward0"), "_functions_cy missing MulBackward0"
+    assert hasattr(mod, "MatmulBackward0"), "_functions_cy missing MatmulBackward0"
+
+
+# ---------------------------------------------------------------------------
+# Parity smoke tests: registration surface and class-name preservation
+# ---------------------------------------------------------------------------
+
+def test_registration_surface_exports_generated_variable_type_wrappers():
+    """registration.py must expose register_generated_autograd_kernels and
+    variable_type.py must have exp_autograd / exp_autograd_post callables."""
+    from candle._generated import registration as reg
+    from candle._generated import variable_type as vt
+
+    assert callable(getattr(vt, "exp_autograd", None)), "vt.exp_autograd not callable"
+    assert callable(getattr(vt, "exp_autograd_post", None)), "vt.exp_autograd_post not callable"
+    assert hasattr(reg, "register_generated_autograd_kernels"), (
+        "registration missing register_generated_autograd_kernels"
+    )
+
+
+def test_py_functions_backward_class_names():
+    """Python functions.py must expose the expected backward Node class names.
+    This is the baseline that must hold regardless of any Cython module state."""
+    from candle._generated import functions as py_functions
+
+    assert hasattr(py_functions, "ExpBackward0"), "functions.py missing ExpBackward0"
+    assert type(py_functions.ExpBackward0.__name__) is str
+
+
+def test_cy_functions_backward_class_names():
+    """Future: _functions_cy must expose the same class names as functions.py
+    so registration.py can swap them transparently. Requires Task 2 Cython build."""
+    import importlib
+    cy_functions = importlib.import_module("candle._generated._functions_cy")
+    assert hasattr(cy_functions, "ExpBackward0"), (
+        "_functions_cy missing ExpBackward0 — compile the Cython module first"
+    )
+    assert hasattr(cy_functions, "MulBackward0"), (
+        "_functions_cy missing MulBackward0"
+    )
+
