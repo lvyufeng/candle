@@ -592,7 +592,8 @@ def test_generated_functions_cython_header_contains_cached_refs(tmp_path):
     assert "wraparound=False" in content, "missing wraparound=False directive"
 
     # Must have module-level cdef object refs for all required symbols
-    assert "cdef object _Node" in content, "missing cdef object _Node"
+    # _Node is now eagerly imported (not cdef), so check for import line instead
+    assert "from candle.autograd.node import Node as _Node" in content, "missing eager _Node import"
     assert "cdef object _grad_context" in content, "missing cdef object _grad_context"
     assert "cdef object _strip_autograd_keys" in content, "missing cdef object _strip_autograd_keys"
     assert "cdef object _backward_dispatch_keyset" in content, "missing cdef object _backward_dispatch_keyset"
@@ -645,8 +646,8 @@ def test_generated_functions_cython_header_contains_cached_refs(tmp_path):
     pyx_path = tmp_path / "_functions_cy.pyx"
     assert pyx_path.exists(), "gen_autograd did not write _functions_cy.pyx"
     disk_content = pyx_path.read_text()
-    assert "cdef object _Node" in disk_content, \
-        "written _functions_cy.pyx missing cached refs"
+    assert "from candle.autograd.node import Node as _Node" in disk_content, \
+        "written _functions_cy.pyx missing eager _Node import"
 
 
 def test_generated_cython_modules_import_after_build():
@@ -659,6 +660,17 @@ def test_generated_cython_modules_import_after_build():
     import importlib
     importlib.import_module("candle._generated._variable_type_cy")
     importlib.import_module("candle._generated._functions_cy")
+
+
+# ---------------------------------------------------------------------------
+# Part 7: Generated package Cython availability flag
+# ---------------------------------------------------------------------------
+
+def test_generated_package_has_cython_availability_flag():
+    """The _generated package init should expose _HAS_GENERATED_CYTHON."""
+    import candle._generated as genpkg
+    assert hasattr(genpkg, "_HAS_GENERATED_CYTHON")
+    assert genpkg._HAS_GENERATED_CYTHON is True
 
 
 @_skip_no_yaml
