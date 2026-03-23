@@ -510,6 +510,66 @@ def test_cy_functions_backward_class_names():
 
 
 @_skip_no_yaml
+def test_generated_variable_type_cython_header_contains_cached_refs(tmp_path):
+    """_variable_type_cy.pyx must contain cached module-level refs and _ensure_refs.
+
+    This test drives Task 3: it fails while gen_variable_type_pyx is a placeholder
+    stub.  It passes once gen_variable_type_pyx emits the full Cython header with
+    cdef object refs for GradMode, annotate_node_creation, etc.
+    """
+    from tools.autograd.gen_variable_type import gen_variable_type_pyx
+    from tools.autograd.load_derivatives import load_derivatives
+    from pathlib import Path
+
+    yaml_path = Path(__file__).resolve().parents[2] / "tools" / "autograd" / "derivatives.yaml"
+    infos = load_derivatives(yaml_path)
+    content = gen_variable_type_pyx(infos)
+
+    # Must have the Cython language_level directive
+    assert "# cython: language_level=3" in content, "missing language_level directive"
+
+    # Must have wraparound=False for safety
+    assert "wraparound=False" in content, "missing wraparound=False directive"
+
+    # Must have module-level cdef object refs for all required symbols
+    assert "cdef object _GradMode" in content, "missing cdef object _GradMode"
+    assert "cdef object _annotate_node_creation" in content, "missing cdef object _annotate_node_creation"
+    assert "cdef object _strip_autograd_keys" in content, "missing cdef object _strip_autograd_keys"
+    assert "cdef object _current_dispatch_keyset" in content, "missing cdef object _current_dispatch_keyset"
+    assert "cdef object _redispatch" in content, "missing cdef object _redispatch"
+    assert "cdef object _F" in content, "missing cdef object _F"
+
+    # Must have the lazy-init helper
+    assert "cdef inline void _ensure_refs()" in content, "missing _ensure_refs() function"
+
+    # Must have wrapper functions for key ops
+    assert "def exp_autograd(" in content, "missing exp_autograd wrapper"
+    assert "def matmul_autograd(" in content or "def matmul_tensor_autograd(" in content, \
+        "missing matmul_autograd wrapper"
+    assert "def mul_tensor_autograd(" in content, "missing mul_tensor_autograd wrapper"
+
+    # Must have post-wrapper functions
+    assert "def exp_autograd_post(" in content, "missing exp_autograd_post wrapper"
+
+    # Must NOT use negative indexing (wraparound=False footgun)
+    import re
+    neg_index_matches = re.findall(r'\[\s*-\d+\s*\]', content)
+    assert not neg_index_matches, (
+        f"Negative indexing found in generated .pyx (wraparound=False footgun): "
+        f"{neg_index_matches[:3]}"
+    )
+
+    # Also verify gen_autograd writes the content to disk
+    from tools.autograd.gen_autograd import main
+    main(yaml_path, tmp_path)
+    pyx_path = tmp_path / "_variable_type_cy.pyx"
+    assert pyx_path.exists(), "gen_autograd did not write _variable_type_cy.pyx"
+    disk_content = pyx_path.read_text()
+    assert "cdef object _GradMode" in disk_content, \
+        "written _variable_type_cy.pyx missing cached refs"
+
+
+@_skip_no_yaml
 def test_gen_autograd_writes_cython_outputs(tmp_path):
     """gen_autograd.main() must write both .pyx outputs alongside the .py outputs.
 
