@@ -82,7 +82,6 @@ class TestDerivativesYamlParsing:
         from pathlib import Path
         yaml_path = Path(__file__).resolve().parents[2] / "tools" / "autograd" / "derivatives.yaml"
         infos = load_derivatives(yaml_path)
-        info_map = {i.name: i for i in infos}
 
         mul_info = next(i for i in infos if i.func_name == "mul.Scalar")
         assert mul_info.backward_name == "MulScalarBackward0"
@@ -444,3 +443,260 @@ class TestNormBackwardNumerical:
         y.sum().backward()
         assert x.grad is not None
         assert x.grad.shape == (2, 3)
+
+
+# ---------------------------------------------------------------------------
+# Part 5: Cython compiled-module contract tests (Task 1)
+# ---------------------------------------------------------------------------
+# These tests pin the contract that future compiled Cython modules must satisfy.
+# They are expected to FAIL until Tasks 3–5 are implemented (modules compiled).
+# Do NOT skip or xfail them — they must fail loudly so CI catches regressions.
+
+def test_generated_cython_variable_type_module_exists():
+    """candle._generated._variable_type_cy must expose autograd wrapper callables."""
+    import importlib
+    mod = importlib.import_module("candle._generated._variable_type_cy")
+    assert hasattr(mod, "exp_autograd"), "_variable_type_cy missing exp_autograd"
+    assert hasattr(mod, "matmul_autograd"), "_variable_type_cy missing matmul_autograd"
+    assert hasattr(mod, "mul_tensor_autograd"), "_variable_type_cy missing mul_tensor_autograd"
+
+
+def test_generated_cython_functions_module_exists():
+    """candle._generated._functions_cy must expose backward Node classes."""
+    import importlib
+    mod = importlib.import_module("candle._generated._functions_cy")
+    assert hasattr(mod, "ExpBackward0"), "_functions_cy missing ExpBackward0"
+    assert hasattr(mod, "MulBackward0"), "_functions_cy missing MulBackward0"
+    assert hasattr(mod, "MatmulBackward0"), "_functions_cy missing MatmulBackward0"
+
+
+# ---------------------------------------------------------------------------
+# Parity smoke tests: registration surface and class-name preservation
+# ---------------------------------------------------------------------------
+
+def test_registration_surface_exports_generated_variable_type_wrappers():
+    """registration.py must expose register_generated_autograd_kernels and
+    variable_type.py must have exp_autograd / exp_autograd_post callables."""
+    from candle._generated import registration as reg
+    from candle._generated import variable_type as vt
+
+    assert callable(getattr(vt, "exp_autograd", None)), "vt.exp_autograd not callable"
+    assert callable(getattr(vt, "exp_autograd_post", None)), "vt.exp_autograd_post not callable"
+    assert hasattr(reg, "register_generated_autograd_kernels"), (
+        "registration missing register_generated_autograd_kernels"
+    )
+
+
+def test_py_functions_backward_class_names():
+    """Python functions.py must expose the expected backward Node class names.
+    This is the baseline that must hold regardless of any Cython module state."""
+    from candle._generated import functions as py_functions
+
+    assert hasattr(py_functions, "ExpBackward0"), "functions.py missing ExpBackward0"
+    assert type(py_functions.ExpBackward0.__name__) is str
+
+
+def test_cy_functions_backward_class_names():
+    """Future: _functions_cy must expose the same class names as functions.py
+    so registration.py can swap them transparently. Requires Task 2 Cython build."""
+    import importlib
+    cy_functions = importlib.import_module("candle._generated._functions_cy")
+    assert hasattr(cy_functions, "ExpBackward0"), (
+        "_functions_cy missing ExpBackward0 — compile the Cython module first"
+    )
+    assert hasattr(cy_functions, "MulBackward0"), (
+        "_functions_cy missing MulBackward0"
+    )
+
+
+@_skip_no_yaml
+def test_generated_variable_type_cython_header_contains_cached_refs(tmp_path):
+    """_variable_type_cy.pyx must contain cached module-level refs and _ensure_refs.
+
+    This test drives Task 3: it fails while gen_variable_type_pyx is a placeholder
+    stub.  It passes once gen_variable_type_pyx emits the full Cython header with
+    cdef object refs for GradMode, annotate_node_creation, etc.
+    """
+    from tools.autograd.gen_variable_type import gen_variable_type_pyx
+    from tools.autograd.load_derivatives import load_derivatives
+    from pathlib import Path
+
+    yaml_path = Path(__file__).resolve().parents[2] / "tools" / "autograd" / "derivatives.yaml"
+    infos = load_derivatives(yaml_path)
+    content = gen_variable_type_pyx(infos)
+
+    # Must have the Cython language_level directive
+    assert "# cython: language_level=3" in content, "missing language_level directive"
+
+    # Must have wraparound=False for safety
+    assert "wraparound=False" in content, "missing wraparound=False directive"
+
+    # Must have module-level cdef object refs for all required symbols
+    assert "cdef object _GradMode" in content, "missing cdef object _GradMode"
+    assert "cdef object _annotate_node_creation" in content, "missing cdef object _annotate_node_creation"
+    assert "cdef object _strip_autograd_keys" in content, "missing cdef object _strip_autograd_keys"
+    assert "cdef object _current_dispatch_keyset" in content, "missing cdef object _current_dispatch_keyset"
+    assert "cdef object _redispatch" in content, "missing cdef object _redispatch"
+    assert "cdef object _F" in content, "missing cdef object _F"
+
+    # Must have the lazy-init helper
+    assert "cdef inline void _ensure_refs()" in content, "missing _ensure_refs() function"
+
+    # Must have wrapper functions for key ops
+    assert "def exp_autograd(" in content, "missing exp_autograd wrapper"
+    assert "def matmul_autograd(" in content or "def matmul_tensor_autograd(" in content, \
+        "missing matmul_autograd wrapper"
+    assert "def mul_tensor_autograd(" in content, "missing mul_tensor_autograd wrapper"
+
+    # Must have post-wrapper functions
+    assert "def exp_autograd_post(" in content, "missing exp_autograd_post wrapper"
+
+    # Must NOT use negative indexing (wraparound=False footgun)
+    import re
+    neg_index_matches = re.findall(r'\[\s*-\d+\s*\]', content)
+    assert not neg_index_matches, (
+        f"Negative indexing found in generated .pyx (wraparound=False footgun): "
+        f"{neg_index_matches[:3]}"
+    )
+
+    # Also verify gen_autograd writes the content to disk
+    from tools.autograd.gen_autograd import main
+    main(yaml_path, tmp_path)
+    pyx_path = tmp_path / "_variable_type_cy.pyx"
+    assert pyx_path.exists(), "gen_autograd did not write _variable_type_cy.pyx"
+    disk_content = pyx_path.read_text()
+    assert "cdef object _GradMode" in disk_content, \
+        "written _variable_type_cy.pyx missing cached refs"
+
+
+@_skip_no_yaml
+def test_generated_functions_cython_header_contains_cached_refs(tmp_path):
+    """_functions_cy.pyx must contain cached module-level refs and _ensure_refs.
+
+    This test drives Task 4: it fails while gen_functions_pyx is a placeholder
+    stub.  It passes once gen_functions_pyx emits the full Cython header with
+    cdef object refs for Node, grad_context, redispatch, etc.
+    """
+    from tools.autograd.gen_functions import gen_functions_pyx
+    from tools.autograd.load_derivatives import load_derivatives
+    from pathlib import Path
+
+    yaml_path = Path(__file__).resolve().parents[2] / "tools" / "autograd" / "derivatives.yaml"
+    infos = load_derivatives(yaml_path)
+    content = gen_functions_pyx(infos)
+
+    # Must have the Cython language_level directive
+    assert "# cython: language_level=3" in content, "missing language_level directive"
+
+    # Must have wraparound=False for safety
+    assert "wraparound=False" in content, "missing wraparound=False directive"
+
+    # Must have module-level cdef object refs for all required symbols
+    # _Node is now eagerly imported (not cdef), so check for import line instead
+    assert "from candle.autograd.node import Node as _Node" in content, "missing eager _Node import"
+    assert "cdef object _grad_context" in content, "missing cdef object _grad_context"
+    assert "cdef object _strip_autograd_keys" in content, "missing cdef object _strip_autograd_keys"
+    assert "cdef object _backward_dispatch_keyset" in content, "missing cdef object _backward_dispatch_keyset"
+    assert "cdef object _scalar_tensor_like" in content, "missing cdef object _scalar_tensor_like"
+    assert "cdef object _redispatch" in content, "missing cdef object _redispatch"
+    assert "cdef object _reduce_grad" in content, "missing cdef object _reduce_grad"
+    assert "cdef object _current_dispatch_keyset" in content, "missing cdef object _current_dispatch_keyset"
+
+    # Must have the lazy-init helper
+    assert "cdef inline void _ensure_refs()" in content, "missing _ensure_refs() function"
+
+    # Must have backward node classes for key ops
+    assert "class ExpBackward0" in content, "missing ExpBackward0 class"
+    assert "class MulBackward0" in content or "class MulTensorBackward0" in content, \
+        "missing MulBackward0/MulTensorBackward0 class"
+    assert "class MatmulBackward0" in content or "class MatmulTensorBackward0" in content, \
+        "missing MatmulBackward0/MatmulTensorBackward0 class"
+
+    # Must NOT use negative indexing (wraparound=False footgun)
+    import re
+    neg_index_matches = re.findall(r'\[\s*-\d+\s*\]', content)
+    assert not neg_index_matches, (
+        f"Negative indexing found in generated .pyx (wraparound=False footgun): "
+        f"{neg_index_matches[:3]}"
+    )
+
+    # Cython-safe generator contract: avoid known compile-blocker free names.
+    blocker_patterns = [
+        r'\b_raise_not_implemented\(',
+        r'\b_as_strided_backward_helper\(',
+        r'\b_erf_backward_helper\(',
+        r'\b_hardsigmoid_backward_helper\(',
+        r'\b_hardswish_backward_helper\(',
+        r'\bM_PI\b',
+        r'\bM_LN2\b',
+        r'\bgrad_sign\b',
+        r'\bgrad_logabsdet\b',
+        r'\bgrad_L\b',
+        r'\bgrad_U\b',
+        r'\bgrads\[0\]',
+        r'\bgrads\[1\]',
+        r'\bgrads\[2\]',
+    ]
+    unexpected = [pattern for pattern in blocker_patterns if re.search(pattern, content)]
+    assert not unexpected, f"known Cython compile blockers still present: {unexpected[:8]}"
+
+    # Also verify gen_autograd writes the content to disk
+    from tools.autograd.gen_autograd import main
+    main(yaml_path, tmp_path)
+    pyx_path = tmp_path / "_functions_cy.pyx"
+    assert pyx_path.exists(), "gen_autograd did not write _functions_cy.pyx"
+    disk_content = pyx_path.read_text()
+    assert "from candle.autograd.node import Node as _Node" in disk_content, \
+        "written _functions_cy.pyx missing eager _Node import"
+
+
+def test_generated_cython_modules_import_after_build():
+    """Smoke test: both generated Cython modules must be importable after build.
+
+    This test drives Task 5: it fails before the generated .pyx files are
+    compiled and installed.  It passes once setup.py includes them and the
+    editable package is reinstalled.
+    """
+    import importlib
+    importlib.import_module("candle._generated._variable_type_cy")
+    importlib.import_module("candle._generated._functions_cy")
+
+
+# ---------------------------------------------------------------------------
+# Part 7: Generated package Cython availability flag
+# ---------------------------------------------------------------------------
+
+def test_generated_package_has_cython_availability_flag():
+    """The _generated package init should expose _HAS_GENERATED_CYTHON."""
+    import candle._generated as genpkg
+    assert hasattr(genpkg, "_HAS_GENERATED_CYTHON")
+    assert genpkg._HAS_GENERATED_CYTHON is True
+
+
+@_skip_no_yaml
+def test_gen_autograd_writes_cython_outputs(tmp_path):
+    """gen_autograd.main() must write both .pyx outputs alongside the .py outputs.
+
+    This test drives Task 2: it fails today because gen_autograd only writes
+    functions.py / variable_type.py / registration.py.  It will pass once
+    gen_autograd is extended to call gen_functions_pyx and gen_variable_type_pyx.
+    """
+    from tools.autograd.gen_autograd import main
+    from pathlib import Path
+
+    yaml_path = Path(__file__).resolve().parents[2] / "tools" / "autograd" / "derivatives.yaml"
+    main(yaml_path, tmp_path)
+
+    # Existing .py outputs must still be written
+    assert (tmp_path / "functions.py").exists(), "functions.py missing"
+    assert (tmp_path / "variable_type.py").exists(), "variable_type.py missing"
+    assert (tmp_path / "registration.py").exists(), "registration.py missing"
+
+    # New .pyx outputs required by Task 2
+    assert (tmp_path / "_functions_cy.pyx").exists(), (
+        "_functions_cy.pyx not written — update gen_autograd to call gen_functions_pyx"
+    )
+    assert (tmp_path / "_variable_type_cy.pyx").exists(), (
+        "_variable_type_cy.pyx not written — update gen_autograd to call gen_variable_type_pyx"
+    )
+
