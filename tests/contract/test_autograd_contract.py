@@ -33,6 +33,34 @@ def test_special_zeta_backward_error_matches_torch():
     assert_torch_error(mt, th)
 
 
+def test_special_gammainc_backward_error_matches_torch():
+    def mt():
+        x = torch.tensor([2.0], requires_grad=True)
+        y = torch.tensor([1.0])
+        torch.special.gammainc(x, y).sum().backward()
+
+    def th():
+        x = pt.tensor([2.0], requires_grad=True)
+        y = pt.tensor([1.0])
+        pt.special.gammainc(x, y).sum().backward()
+
+    assert_torch_error(mt, th)
+
+
+def test_special_gammaincc_backward_error_matches_torch():
+    def mt():
+        x = torch.tensor([2.0], requires_grad=True)
+        y = torch.tensor([1.0])
+        torch.special.gammaincc(x, y).sum().backward()
+
+    def th():
+        x = pt.tensor([2.0], requires_grad=True)
+        y = pt.tensor([1.0])
+        pt.special.gammaincc(x, y).sum().backward()
+
+    assert_torch_error(mt, th)
+
+
 def test_unique_backward_error_matches_torch():
     def mt():
         x = torch.tensor([1.0, 2.0], requires_grad=True)
