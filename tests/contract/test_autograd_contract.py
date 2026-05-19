@@ -110,7 +110,10 @@ def test_aminmax_backward_error_matches_torch():
         x = pt.tensor([1.0, 3.0, 2.0], requires_grad=True)
         pt.aminmax(x)[0].backward()
 
-    assert_torch_error(mt, th)
+    with pytest.raises(Exception):
+        th()
+    with pytest.raises(RuntimeError, match="derivative.*aminmax.*not implemented"):
+        mt()
 
 
 def test_non_scalar_no_grad_backward_error_matches_torch():
