@@ -7641,26 +7641,9 @@ def _npu_autograd_dropout():
             node_holder = {}
 
             def _backward(grad):
-                if backward_data is not None:
-                    return _npu_dropout_backward(grad, backward_data, out, a, args, kwargs)
-                # fallback: mask * scale
-                from .cpu.ops import _to_numpy, _from_numpy
-                import numpy as _np
-                g_np = _to_numpy(grad)
-                p = args[0] if args else kwargs.get("p", 0.5)
-                training = args[1] if len(args) > 1 else kwargs.get("training", True)
-                if not training or p == 0:
-                    return (grad,)
-                if backward_data is not None and "mask" in backward_data:
-                    mask_np = backward_data["mask"].astype(g_np.dtype)
-                    p = backward_data["p"]
-                else:
-                    out_np = _to_numpy(out)
-                    a_np = _to_numpy(a)
-                    mask_np = _np.where(_np.abs(a_np) > 0, (out_np != 0).astype(g_np.dtype), 1.0)
-                scale = 1.0 / (1.0 - p) if p < 1.0 else 0.0
-                grad_np = g_np * mask_np * scale
-                return (_from_numpy(grad_np, grad.dtype, grad.device),)
+                if backward_data is None:
+                    raise RuntimeError("NPU dropout backward requires device mask metadata")
+                return _npu_dropout_backward(grad, backward_data, out, a, args, kwargs)
 
             node = Node(_backward, (a,), name=f"{op_name.capitalize()}Backward0")
             annotate_node_creation(node)

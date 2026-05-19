@@ -43,6 +43,15 @@ def test_cython_and_python_npu_dispatch_key_constants_stay_in_sync():
         assert re.search(pattern, core_src), f"_dispatcher_core.pyx {name} key constant drifted"
 
 
+def test_npu_autograd_overrides_do_not_use_cpu_fallbacks():
+    autograd_src = _source("src/candle/_backends/autograd.py")
+    npu_override_src = autograd_src.split("# NPU ACLNN fused backward kernels", 1)[1]
+
+    forbidden = ["from .cpu", "import numpy", "_to_numpy", "_from_numpy"]
+    for marker in forbidden:
+        assert marker not in npu_override_src
+
+
 def test_core_npu_training_ops_have_forward_and_autograd_registration():
     forward_ops = _npu_forward_ops()
     autograd_ops = _npu_autograd_ops()
