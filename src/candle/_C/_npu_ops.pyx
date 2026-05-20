@@ -3212,13 +3212,23 @@ def fast_hypot(a, b):
 
 
 def fast_fmin(a, b):
-    """NPU fmin(a, b) implemented as an on-device Cython composite."""
-    return fast_where(fast_binary_op(a, b, None, "le"), a, b)
+    """NPU fmin(a, b) routed through aclnnMinimum.
+
+    Note: PyTorch fmin differs from min in NaN handling (fmin(x, NaN) = x).
+    We currently treat fmin as minimum because the previous SWhere-based
+    composite segfaults on 310B; NaN-aware semantics will be revisited.
+    """
+    return fast_binary_op(a, b, None, "minimum")
 
 
 def fast_fmax(a, b):
-    """NPU fmax(a, b) implemented as an on-device Cython composite."""
-    return fast_where(fast_binary_op(a, b, None, "ge"), a, b)
+    """NPU fmax(a, b) routed through aclnnMaximum.
+
+    Note: PyTorch fmax differs from max in NaN handling (fmax(x, NaN) = x).
+    We currently treat fmax as maximum because the previous SWhere-based
+    composite segfaults on 310B; NaN-aware semantics will be revisited.
+    """
+    return fast_binary_op(a, b, None, "maximum")
 
 
 def fast_sin(a):
